@@ -26,7 +26,7 @@ CONFIG = {
                 "timeframe": "1m",
                 "since_date": "2026-01-01T00:00:00Z",
                 "until_date": "2026-06-27T00:00:00Z", 
-                "cache_path": "data/crypto/raw/BTCUSDT_1m_okx.parquet",
+                "cache_path": "data/crypto/raw/BTCUSDT_1m_okx2.parquet",
                 "force_refresh": False,   # True = full re-fetch, overwrite cache
                 "update_latest": False,   # True = fetch only new candles since last cache, append
             },
@@ -40,7 +40,7 @@ CONFIG = {
                 "timeframe": "1m",
                 "since_date": "2026-01-01T00:00:00Z",
                 "until_date": "2026-06-27T00:00:00Z", 
-                "cache_path": "data/crypto/raw/BTCUSDT_1m_bybit.parquet",
+                "cache_path": "data/crypto/raw/BTCUSDT_1m_kucoin2.parquet",
                 "force_refresh": False,
                 "update_latest": False,
             },
