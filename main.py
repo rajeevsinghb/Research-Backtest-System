@@ -60,7 +60,7 @@ CONFIG = {
 
     "scenarios": ["exchange_price_gap"],        # single or multiple, e.g. ["simple_summary", "leadlag"]
 
-    "scenario_params": {"exchange_price_gap": {"thresholds": [0.5, 1.0, 1.5, 2.0]
+    "scenario_params": {"exchange_price_gap": {"thresholds": [0.5, 1.0, 1.5, 2.0]},
         # optional per-scenario params, e.g.
         # "leadlag": {"move_threshold_pct": 0.05, "max_lag": 10}
     },
