@@ -34,10 +34,10 @@ CONFIG = {
         "bybit_btc": {
             "source": "ccxt_fetch",
             "params": {
-                "exchange": "bybit",
+                "exchange": "kucoin",
                 "symbol": "BTC/USDT",
                 "timeframe": "15m",
-                "since_date": "2024-01-01T00:00:00Z",
+                "since_date": "2026-01-01T00:00:00Z",
                 "cache_path": "data/crypto/raw/BTCUSDT_15m_bybit.parquet",
                 "force_refresh": False,
                 "update_latest": False,
