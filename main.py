@@ -24,7 +24,7 @@ CONFIG = {
                 "exchange": "okx",
                 "symbol": "BTC/USDT",
                 "timeframe": "1m",
-                "since_date": "2026-06-20T00:00:00Z",
+                "since_date": "2026-01-01T00:00:00Z",
                 "until_date": "2026-06-27T00:00:00Z", 
                 "cache_path": "data/crypto/raw/BTCUSDT_1m_okx.parquet",
                 "force_refresh": False,   # True = full re-fetch, overwrite cache
@@ -38,7 +38,7 @@ CONFIG = {
                 "exchange": "kucoin",
                 "symbol": "BTC/USDT",
                 "timeframe": "1m",
-                "since_date": "2026-06-20T00:00:00Z",
+                "since_date": "2026-01-01T00:00:00Z",
                 "until_date": "2026-06-27T00:00:00Z", 
                 "cache_path": "data/crypto/raw/BTCUSDT_1m_bybit.parquet",
                 "force_refresh": False,
