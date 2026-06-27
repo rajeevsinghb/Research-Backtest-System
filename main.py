@@ -24,7 +24,7 @@ CONFIG = {
                 "exchange": "okx",
                 "symbol": "BTC/USDT",
                 "timeframe": "15m",
-                "since_date": "2024-01-01T00:00:00Z",
+                "since_date": "2026-01-01T00:00:00Z",
                 "cache_path": "data/crypto/raw/BTCUSDT_15m_okx.parquet",
                 "force_refresh": False,   # True = full re-fetch, overwrite cache
                 "update_latest": False,   # True = fetch only new candles since last cache, append
