@@ -1,0 +1,19 @@
+{
+  "total_events": 25210,
+  "leader_pct": {
+    "bybit_btc_leads": 50.1,
+    "okx_btc_leads": 49.9
+  },
+  "lag_stats_by_leader": {
+    "bybit_btc_leads": {
+      "min": 0,
+      "max": 10,
+      "mean": 0.08
+    },
+    "okx_btc_leads": {
+      "min": 0,
+      "max": 10,
+      "mean": 0.07
+    }
+  }
+}
