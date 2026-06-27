@@ -23,9 +23,10 @@ CONFIG = {
             "params": {
                 "exchange": "okx",
                 "symbol": "BTC/USDT",
-                "timeframe": "15m",
-                "since_date": "2026-01-01T00:00:00Z",
-                "cache_path": "data/crypto/raw/BTCUSDT_15m_okx.parquet",
+                "timeframe": "1m",
+                "since_date": "2026-06-20T00:00:00Z",
+                "until_date": "2026-06-27T00:00:00Z", 
+                "cache_path": "data/crypto/raw/BTCUSDT_1m_okx.parquet",
                 "force_refresh": False,   # True = full re-fetch, overwrite cache
                 "update_latest": False,   # True = fetch only new candles since last cache, append
             },
@@ -36,9 +37,10 @@ CONFIG = {
             "params": {
                 "exchange": "kucoin",
                 "symbol": "BTC/USDT",
-                "timeframe": "15m",
-                "since_date": "2026-01-01T00:00:00Z",
-                "cache_path": "data/crypto/raw/BTCUSDT_15m_bybit.parquet",
+                "timeframe": "1m",
+                "since_date": "2026-06-20T00:00:00Z",
+                "until_date": "2026-06-27T00:00:00Z", 
+                "cache_path": "data/crypto/raw/BTCUSDT_1m_bybit.parquet",
                 "force_refresh": False,
                 "update_latest": False,
             },
@@ -54,11 +56,11 @@ CONFIG = {
         # },
     },
 
-    "indicators": ["RSI", "ATR"],          # single or multiple — empty list [] = skip indicators
+    "indicators": [ ],          # single or multiple — empty list [] = skip indicators
 
-    "scenarios": ["simple_summary", "leadlag"],        # single or multiple, e.g. ["simple_summary", "leadlag"]
+    "scenarios": ["exchange_price_gap"],        # single or multiple, e.g. ["simple_summary", "leadlag"]
 
-    "scenario_params": {
+    "scenario_params": {"exchange_price_gap": {"thresholds": [0.5, 1.0, 1.5, 2.0]
         # optional per-scenario params, e.g.
         # "leadlag": {"move_threshold_pct": 0.05, "max_lag": 10}
     },
