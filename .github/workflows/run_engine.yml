@@ -1,4 +1,4 @@
-name: Run Research Engine
+name: Run Research System
 
 # Manual trigger only for now — cron schedule can be added later
 on:
