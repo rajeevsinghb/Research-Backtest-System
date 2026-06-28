@@ -93,3 +93,35 @@ Every dataset using `ccxt_fetch` needs a `cache_path`. Behavior:
 Every scenario run automatically saves a CSV (and a companion summary JSON
 where applicable) into `outputs/`, named `{scenario_name}_{timestamp}.csv`,
 so results can be inspected directly on GitHub without running any code.
+
+## Data source configuration reference
+
+Each `data_sources/*.py` file's own docstring (top of the file) is the
+authoritative reference for its exact params — open that file if in doubt.
+This table is just a quick lookup to know which library to use for what,
+and what its CONFIG block in `main.py` roughly looks like.
+
+| Source name (`"source"` in CONFIG) | Library | API key needed? | Covers | Example params |
+|---|---|---|---|---|
+| `ccxt_fetch` | ccxt | No | Crypto OHLCV from any exchange (OKX, Bybit, KuCoin, Binance, ...) | `exchange, symbol, timeframe, since_date, until_date, cache_path, force_refresh, update_latest` |
+| `local_parquet` | pandas (no fetch) | No | Any already-saved Parquet file (e.g. manually placed/converted data from any source) | `path` |
+| `yfinance_fetch` | yfinance | No | Stocks, indices (Nifty, Nasdaq, S&P500), commodities (Gold, Silver, Oil), forex (EUR/USD, USD/INR), VIX, DXY, approx. bond yields | `ticker, interval, since_date, until_date, cache_path, force_refresh, update_latest` |
+| `pycoingecko_fetch` | pycoingecko | No (free public API) | BTC Dominance (current value only on free tier), Total Crypto Market Cap, individual coin price history | `metric, coin_id (only for "coin_price"), days, cache_path, force_refresh, update_latest` |
+| `fred_fetch` | fredapi | **Yes** — free key from fred.stlouisfed.org | Official US macro data: 10Y/2Y Treasury Yield, CPI, Fed Funds Rate, etc. | `series_id, since_date, until_date, cache_path, force_refresh, update_latest, api_key (or env var FRED_API_KEY)` |
+
+**Common pattern across every source (so switching libraries never feels different):**
+- Every source returns the same standardized columns: `timestamp, open, high, low, close, volume`
+  (for sources that aren't real OHLCV, like FRED/CoinGecko macro series, open/high/low just mirror
+  close and volume is 0 — this keeps every indicator/scenario working unchanged regardless of source).
+- Every source supports the same 3 caching modes via params: default (cache-read), `update_latest`,
+  `force_refresh` — except `local_parquet` which has no caching logic since it never fetches anything.
+- The only thing that's genuinely different per library is the **input params** (because each
+  library's own API is different) — that's the only part you ever need to look up per source.
+
+**Where to make changes when adding a new dataset using any of these sources:**
+1. Open `main.py`
+2. Add a new entry under `CONFIG["datasets"]`
+3. Set `"source"` to the source name from the table above
+4. Fill in that source's specific params (check its file's docstring or the table above)
+5. Nothing else needs to change — `core/`, `indicators/`, `scenarios/` stay untouched
+
