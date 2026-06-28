@@ -1,21 +1,24 @@
 """
 scenarios/exchange_price_gap.py
 ----------------------------------
-Scenario: Exchange Price Gap (Lead-Lag with multiple thresholds)
+Scenario: Exchange Price Gap (band-based, mutually exclusive thresholds)
 
 Compares CLOSE price of two exchanges (same coin, same timeframe — designed
-for 1m) at matching timestamps. For each given % threshold, it detects
-periods where the price gap between the two exchanges exceeds that
-threshold, identifies which exchange led (was first / higher at gap start)
-and which followed (price adjusted to close the gap), and reports:
+for 1m) at matching timestamps. Instead of overlapping ">X%" thresholds,
+this version buckets every row's |gap%| into MUTUALLY EXCLUSIVE bands
+(e.g. 0-0.5%, 0.5-1%, 1-1.5%, 1.5-2%, 2%+) so each row is counted exactly
+once — no double-counting across thresholds.
 
-  1. EVENT-LEVEL detail (one row per gap event):
-       threshold_pct, start_timestamp, end_timestamp, duration_minutes,
-       leader, follower, max_gap_pct
+For each band, it reports:
+  - % of total rows falling in that band
+  - within that band, % where exchange A was higher (leading) vs B
+  - EVENT-LEVEL detail: consecutive-row gap events within that band
+    (start_timestamp, end_timestamp, duration_minutes, leader, follower,
+     max_gap_pct)
 
-  2. ROW-LEVEL OVERALL SUMMARY (per threshold):
-       total_rows, % rows where exchange A led, % rows where exchange B
-       led, % rows where gap stayed under threshold (no significant gap)
+If a band has ZERO occurrences, it is still explicitly shown with 0.0%
+(never blank) — so you can always tell "ran and found nothing" apart
+from "didn't run".
 
 Registered name: "exchange_price_gap"
 
@@ -23,7 +26,10 @@ Expects exactly 2 datasets in the `data` dict, e.g.:
     {"exchange_a": df_a, "exchange_b": df_b}
 
 params expected:
-    thresholds : list of float, e.g. [0.1, 0.3, 0.5, 1.0]   (in %, default [0.5])
+    thresholds : list of float, e.g. [0.5, 1.0, 1.5, 2.0]
+                 These define band EDGES. Bands built automatically as:
+                 [0, t1), [t1, t2), [t2, t3), ..., [t_last, inf)
+                 Default: [0.5, 1.0, 1.5, 2.0]
 """
 
 import numpy as np
@@ -46,29 +52,61 @@ def _align(data: dict):
     return label_a, label_b, merged
 
 
-def _row_level_summary(merged: pd.DataFrame, label_a: str, label_b: str, threshold: float):
+def _build_bands(thresholds):
+    """Build mutually-exclusive band edges: [0, t1), [t1, t2), ..., [t_last, inf)"""
+    edges = sorted(thresholds)
+    bands = [(0.0, edges[0])]
+    for i in range(len(edges) - 1):
+        bands.append((edges[i], edges[i + 1]))
+    bands.append((edges[-1], float("inf")))
+    return bands
+
+
+def _band_label(low, high):
+    if high == float("inf"):
+        return f"{low}%+"
+    return f"{low}-{high}%"
+
+
+def _row_level_summary(merged: pd.DataFrame, label_a: str, label_b: str, bands):
     total = len(merged)
-    a_leads_mask = merged["gap_pct"] > threshold     # A's price is higher than B's by more than threshold
-    b_leads_mask = merged["gap_pct"] < -threshold    # B's price is higher than A's by more than threshold
-    no_gap_mask = ~(a_leads_mask | b_leads_mask)
+    rows = []
 
-    return {
-        "threshold_pct": threshold,
-        "total_rows": total,
-        f"{label_a}_leads_pct": round(a_leads_mask.sum() / total * 100, 2),
-        f"{label_b}_leads_pct": round(b_leads_mask.sum() / total * 100, 2),
-        "no_significant_gap_pct": round(no_gap_mask.sum() / total * 100, 2),
-    }
+    for low, high in bands:
+        in_band = (merged["abs_gap_pct"] >= low) & (merged["abs_gap_pct"] < high)
+        band_count = in_band.sum()
+
+        a_leads = in_band & (merged["gap_pct"] > 0)   # A's close higher than B's, within this band
+        b_leads = in_band & (merged["gap_pct"] < 0)
+
+        rows.append({
+            "band": _band_label(low, high),
+            "band_low_pct": low,
+            "band_high_pct": high,
+            "rows_in_band": int(band_count),
+            "pct_of_total_rows": round(band_count / total * 100, 4) if total else 0.0,
+            f"{label_a}_leads_pct_of_total": round(a_leads.sum() / total * 100, 4) if total else 0.0,
+            f"{label_b}_leads_pct_of_total": round(b_leads.sum() / total * 100, 4) if total else 0.0,
+        })
+
+    return pd.DataFrame(rows)
 
 
-def _event_level_detail(merged: pd.DataFrame, label_a: str, label_b: str, threshold: float):
-    """Groups consecutive rows where |gap| > threshold into discrete gap events."""
-    state = np.where(merged["gap_pct"] > threshold, label_a,
-             np.where(merged["gap_pct"] < -threshold, label_b, "none"))
+def _event_level_detail(merged: pd.DataFrame, label_a: str, label_b: str, low, high):
+    """Groups consecutive rows whose |gap| falls within [low, high) into discrete gap events."""
+    in_band = (merged["abs_gap_pct"] >= low) & (merged["abs_gap_pct"] < high)
+    direction = np.where(merged["gap_pct"] > 0, label_a, label_b)
+    state = np.where(in_band, direction, "none")
+
+    n = len(state)
+    if n == 0:
+        return pd.DataFrame(columns=["band", "start_timestamp", "end_timestamp",
+                                      "duration_minutes", "leader", "follower", "max_gap_pct"])
+
+    candle_minutes = (merged["timestamp"].iloc[1] - merged["timestamp"].iloc[0]).total_seconds() / 60 if n > 1 else 1
 
     events = []
     i = 0
-    n = len(state)
     while i < n:
         if state[i] == "none":
             i += 1
@@ -81,14 +119,12 @@ def _event_level_detail(merged: pd.DataFrame, label_a: str, label_b: str, thresh
 
         start_ts = merged["timestamp"].iloc[start_idx]
         end_ts = merged["timestamp"].iloc[end_idx]
-        duration_minutes = (end_ts - start_ts).total_seconds() / 60 + (
-            (merged["timestamp"].iloc[1] - merged["timestamp"].iloc[0]).total_seconds() / 60
-        )
+        duration_minutes = (end_ts - start_ts).total_seconds() / 60 + candle_minutes
         max_gap = merged["abs_gap_pct"].iloc[start_idx:end_idx + 1].max()
         follower = label_b if leader == label_a else label_a
 
         events.append({
-            "threshold_pct": threshold,
+            "band": _band_label(low, high),
             "start_timestamp": start_ts,
             "end_timestamp": end_ts,
             "duration_minutes": round(duration_minutes, 2),
@@ -103,30 +139,24 @@ def _event_level_detail(merged: pd.DataFrame, label_a: str, label_b: str, thresh
 @register_scenario("exchange_price_gap")
 def run(data: dict, params: dict = None):
     params = params or {}
-    thresholds = params.get("thresholds", [0.5])
+    thresholds = params.get("thresholds", [0.5, 1.0, 1.5, 2.0])
+    bands = _build_bands(thresholds)
 
     label_a, label_b, merged = _align(data)
 
-    all_summaries = []
+    summary_df = _row_level_summary(merged, label_a, label_b, bands)
+
     all_events = []
+    for low, high in bands:
+        events_df = _event_level_detail(merged, label_a, label_b, low, high)
+        all_events.append(events_df)  # appended even if empty -> band still traceable
 
-    for threshold in thresholds:
-        summary = _row_level_summary(merged, label_a, label_b, threshold)
-        all_summaries.append(summary)
-
-        events_df = _event_level_detail(merged, label_a, label_b, threshold)
-        if not events_df.empty:
-            all_events.append(events_df)
-
-    summary_df = pd.DataFrame(all_summaries)
-    events_df = pd.concat(all_events, ignore_index=True) if all_events else pd.DataFrame(
-        columns=["threshold_pct", "start_timestamp", "end_timestamp", "duration_minutes",
-                 "leader", "follower", "max_gap_pct"]
-    )
+    events_df = pd.concat(all_events, ignore_index=True) if all_events else pd.DataFrame()
 
     return {
         "exchange_a": label_a,
         "exchange_b": label_b,
+        "total_rows_compared": len(merged),
         "row_level_summary": summary_df,
-        "details": events_df,   # this is what output_writer.py will save as the main CSV
+        "details": events_df,
     }
