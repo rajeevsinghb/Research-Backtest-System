@@ -9,6 +9,7 @@ scenarios/ logic from here — this file just selects and orchestrates.
 
 import asyncio
 import concurrent.futures
+import os
 
 from core.loader import load_everything
 from core.registry import DATA_SOURCE_REGISTRY, INDICATOR_REGISTRY, SCENARIO_REGISTRY, list_registered
@@ -86,7 +87,15 @@ def _load_datasets_parallel(datasets_config: dict) -> dict:
             key, source_name = future_to_key[future]
             df = future.result()
             data[key] = df
-            print(f"[loaded] {key} -> {len(df):,} rows (source: {source_name})")
+            size_mb = df.memory_usage(deep=True).sum() / (1024 * 1024)
+
+            cache_path = datasets_config[key]["params"].get("cache_path")
+            disk_size_str = ""
+            if cache_path and os.path.exists(cache_path):
+                disk_mb = os.path.getsize(cache_path) / (1024 * 1024)
+                disk_size_str = f", {disk_mb:.2f} MB on disk (Parquet)"
+
+            print(f"[loaded] {key} -> {len(df):,} rows, ~{size_mb:.2f} MB in memory{disk_size_str} (source: {source_name})")
 
     # preserve original config order in the returned dict
     return {key: data[key] for key in datasets_config}
