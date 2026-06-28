@@ -70,6 +70,75 @@ CONFIG = {
 # ============================================================
 
 
+# ============================================================
+# READY-MADE TEMPLATES — copy the block you need into CONFIG["datasets"]
+# above, give it a key name, uncomment, and change ONLY the highlighted
+# value (ticker / symbol / series_id / metric). Nothing else needs typing.
+# ============================================================
+#
+# --- ccxt_fetch (crypto, any exchange) ---
+# "my_dataset_name": {
+#     "source": "ccxt_fetch",
+#     "params": {
+#         "exchange": "okx",                    # <-- change exchange
+#         "symbol": "BTC/USDT",                 # <-- change coin pair
+#         "timeframe": "1m",
+#         "since_date": "2025-11-27T00:00:00Z",
+#         "until_date": "2026-06-27T00:00:00Z",
+#         "cache_path": "data/crypto/raw/CHANGE_ME.parquet",
+#         "force_refresh": False,
+#         "update_latest": False,
+#     },
+# },
+#
+# --- yfinance_fetch (stocks/forex/commodities/indices) ---
+# "my_dataset_name": {
+#     "source": "yfinance_fetch",
+#     "params": {
+#         "ticker": "GC=F",                     # <-- change ticker (see README table for codes)
+#         "interval": "1d",
+#         "since_date": "2024-01-01",
+#         "until_date": "2026-06-27",
+#         "cache_path": "data/macro/raw/CHANGE_ME.parquet",
+#         "force_refresh": False,
+#         "update_latest": False,
+#     },
+# },
+#
+# --- pycoingecko_fetch (BTC dominance / total market cap / coin price) ---
+# "my_dataset_name": {
+#     "source": "pycoingecko_fetch",
+#     "params": {
+#         "metric": "total_market_cap",         # <-- change: btc_dominance / total_market_cap / coin_price
+#         "coin_id": None,                      # <-- only needed if metric == "coin_price", e.g. "bitcoin"
+#         "days": 365,
+#         "cache_path": "data/macro/raw/CHANGE_ME.parquet",
+#         "force_refresh": False,
+#         "update_latest": False,
+#     },
+# },
+#
+# --- fred_fetch (official US macro data — needs FRED_API_KEY env var) ---
+# "my_dataset_name": {
+#     "source": "fred_fetch",
+#     "params": {
+#         "series_id": "DGS10",                 # <-- change series code (see README table)
+#         "since_date": "2024-01-01",
+#         "until_date": "2026-06-27",
+#         "cache_path": "data/macro/raw/CHANGE_ME.parquet",
+#         "force_refresh": False,
+#         "update_latest": False,
+#     },
+# },
+#
+# --- local_parquet (any externally-sourced Parquet you've placed manually) ---
+# "my_dataset_name": {
+#     "source": "local_parquet",
+#     "params": {"path": "data/CHANGE_ME.parquet"},
+# },
+# ============================================================
+
+
 def _load_datasets_parallel(datasets_config: dict) -> dict:
     """Loads all configured datasets concurrently (e.g. fetching 2 exchanges
     at the same time instead of one after another) using a thread pool —
