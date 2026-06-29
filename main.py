@@ -25,12 +25,12 @@ CONFIG = {
         "okx_btc": {
             "source": "ccxt_fetch",
             "params": {
-                "exchange": "okx",
+                "exchange": "coinbase",
                 "symbol": "BTC/USDT",
                 "timeframe": "1m",
-                "since_date": "2025-11-27T00:00:00Z",   # set your start date
-                "until_date": "2026-06-27T00:00:00Z",   # set your end date
-                "cache_path": "data/leadlag/raw/BTCUSDT_1m_okx.parquet",
+                "since_date": "2026-06-27T00:00:00Z",   # set your start date
+                "until_date": "2026-06-28T00:00:00Z",   # set your end date
+                "cache_path": "data/leadlag/raw/BTCUSDT_1m_coinbase.parquet",
                 "force_refresh": False,   # True = full re-fetch, overwrite cache
                 "update_latest": False,   # True = fetch only new candles since last cache, append
             },
@@ -39,11 +39,11 @@ CONFIG = {
         "kucoin_btc": {
             "source": "ccxt_fetch",
             "params": {
-                "exchange": "kucoin",
+                "exchange": "kraken",
                 "symbol": "BTC/USDT",
                 "timeframe": "1m",
-                "since_date": "2025-11-27T00:00:00Z",
-                "until_date": "2026-06-27T00:00:00Z",
+                "since_date": "2026-06-27T00:00:00Z",   # set your start date
+                "until_date": "2026-06-28T00:00:00Z",   # set your end date
                 "cache_path": "data/leadlag/raw/BTCUSDT_1m_kucoin.parquet",
                 "force_refresh": False,
                 "update_latest": False,
@@ -59,7 +59,7 @@ CONFIG = {
 
     "indicators": [],          # single or multiple — empty list [] = skip indicators
 
-    "scenarios": ["exchange_price_gap"],        # single or multiple
+    "scenarios": [],        # single or multiple
 
     "scenario_params": {
         "exchange_price_gap": {"thresholds": [0.5, 1.0, 1.5, 2.0]},   # band edges, in %
