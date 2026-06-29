@@ -28,9 +28,9 @@ CONFIG = {
                 "exchange": "coinbase",
                 "symbol": "BTC/USDT",
                 "timeframe": "1m",
-                "since_date": "2026-06-27T00:00:00Z",   # set your start date
-                "until_date": "2026-06-28T00:00:00Z",   # set your end date
-                "cache_path": "data/leadlag/raw/BTCUSDT_1m_coinbase.parquet",
+                "since_date": "2026-01-01T00:00:00Z",   # set your start date
+                "until_date": "2026-02-01T00:00:00Z",   # set your end date
+                "cache_path": "data/leadlag/raw/BTCUSDT_1m_coinbase_2026_01.parquet",
                 "force_refresh": False,   # True = full re-fetch, overwrite cache
                 "update_latest": False,   # True = fetch only new candles since last cache, append
             },
