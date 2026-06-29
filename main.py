@@ -44,7 +44,7 @@ CONFIG = {
                 "timeframe": "1m",
                 "since_date": "2026-06-27T00:00:00Z",   # set your start date
                 "until_date": "2026-06-28T00:00:00Z",   # set your end date
-                "cache_path": "data/leadlag/raw/BTCUSDT_1m_kucoin.parquet",
+                "cache_path": "data/leadlag/raw/BTCUSDT_1m_kraken.parquet",
                 "force_refresh": False,
                 "update_latest": False,
             },
