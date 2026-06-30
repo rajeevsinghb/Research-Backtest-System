@@ -25,12 +25,14 @@ CONFIG = {
         "okx_btc": {
             "source": "ccxt_fetch",
             "params": {
-                "exchange": "coinbase",
+                "exchange": "okx",
                 "symbol": "BTC/USDT",
                 "timeframe": "1m",
-                "since_date": "2026-01-01T00:00:00Z",   # set your start date
-                "until_date": "2026-02-01T00:00:00Z",   # set your end date
-                "cache_path": "data/leadlag/raw/BTCUSDT_1m_coinbase_2026_01.parquet",
+                "since_date": "2025-11-27T00:00:00Z",   # set your start date
+                "until_date": "2026-06-27T00:00:00Z",   # set your end date
+                "cache_path": "data/leadlag/raw/BTCUSDT_1m_okx.parquet",
+                "parallel_workers": 5,    # how many monthly chunks fetched concurrently
+                "merge_chunks": True,     # True = single final file, False = keep chunks separate
                 "force_refresh": False,   # True = full re-fetch, overwrite cache
                 "update_latest": False,   # True = fetch only new candles since last cache, append
             },
@@ -39,12 +41,14 @@ CONFIG = {
         "kucoin_btc": {
             "source": "ccxt_fetch",
             "params": {
-                "exchange": "kraken",
+                "exchange": "kucoin",
                 "symbol": "BTC/USDT",
                 "timeframe": "1m",
-                "since_date": "2026-06-27T00:00:00Z",   # set your start date
-                "until_date": "2026-06-28T00:00:00Z",   # set your end date
-                "cache_path": "data/leadlag/raw/BTCUSDT_1m_kraken.parquet",
+                "since_date": "2025-11-27T00:00:00Z",
+                "until_date": "2026-06-27T00:00:00Z",
+                "cache_path": "data/leadlag/raw/BTCUSDT_1m_kucoin.parquet",
+                "parallel_workers": 5,
+                "merge_chunks": True,
                 "force_refresh": False,
                 "update_latest": False,
             },
@@ -59,7 +63,7 @@ CONFIG = {
 
     "indicators": [],          # single or multiple — empty list [] = skip indicators
 
-    "scenarios": [],        # single or multiple
+    "scenarios": ["exchange_price_gap"],        # single or multiple
 
     "scenario_params": {
         "exchange_price_gap": {"thresholds": [0.5, 1.0, 1.5, 2.0]},   # band edges, in %
@@ -76,16 +80,18 @@ CONFIG = {
 # value (ticker / symbol / series_id / metric). Nothing else needs typing.
 # ============================================================
 #
-# --- ccxt_fetch (crypto, any exchange) ---
+# --- ccxt_fetch (crypto, any exchange — supports large historical pulls via chunking) ---
 # "my_dataset_name": {
 #     "source": "ccxt_fetch",
 #     "params": {
 #         "exchange": "okx",                    # <-- change exchange
 #         "symbol": "BTC/USDT",                 # <-- change coin pair
 #         "timeframe": "1m",
-#         "since_date": "2025-11-27T00:00:00Z",
+#         "since_date": "2016-01-01T00:00:00Z", # <-- e.g. for 10 years of data
 #         "until_date": "2026-06-27T00:00:00Z",
 #         "cache_path": "data/crypto/raw/CHANGE_ME.parquet",
+#         "parallel_workers": 8,                # <-- how many months fetched concurrently
+#         "merge_chunks": True,                 # <-- False = keep monthly chunk files separate
 #         "force_refresh": False,
 #         "update_latest": False,
 #     },
