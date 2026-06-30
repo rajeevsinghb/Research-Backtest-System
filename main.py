@@ -26,12 +26,12 @@ CONFIG = {
             "enabled": True,          # set False to skip this dataset without deleting/commenting it
             "source": "ccxt_fetch",
             "params": {
-                "exchange": "okx",
+                "exchange": "coinbase",
                 "symbol": "BTC/USDT",
                 "timeframe": "1m",
-                "since_date": "2025-11-27T00:00:00Z",   # set your start date
-                "until_date": "2026-06-27T00:00:00Z",   # set your end date
-                "cache_path": "data/leadlag/raw/BTCUSDT_1m_okx.parquet",
+                "since_date": "2025-01-01T00:00:00Z",   # set your start date
+                "until_date": "2026-01-01T00:00:00Z",   # set your end date
+                "cache_path": "data/leadlag/raw/BTCUSDT_1m_coinbase_2025.parquet",
                 "parallel_workers": 5,    # how many monthly chunks fetched concurrently
                 "merge_chunks": True,     # True = single final file, False = keep chunks separate
                 "force_refresh": False,   # True = full re-fetch, overwrite cache
@@ -40,7 +40,7 @@ CONFIG = {
         },
 
         "kucoin_btc": {
-            "enabled": True,          # set False to skip this dataset without deleting/commenting it
+            "enabled": False,          # set False to skip this dataset without deleting/commenting it
             "source": "ccxt_fetch",
             "params": {
                 "exchange": "kucoin",
@@ -65,7 +65,7 @@ CONFIG = {
 
     "indicators": [],          # single or multiple — empty list [] = skip indicators
 
-    "scenarios": ["exchange_price_gap"],        # single or multiple
+    "scenarios": [],        # single or multiple
 
     "scenario_params": {
         "exchange_price_gap": {"thresholds": [0.5, 1.0, 1.5, 2.0]},   # band edges, in %
