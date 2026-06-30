@@ -1,5 +1,0 @@
-{
-  "exchange_a": "okx_btc",
-  "exchange_b": "bybit_btc",
-  "row_level_summary": "   threshold_pct  total_rows  ...  bybit_btc_leads_pct  no_significant_gap_pct\n0            0.5       10081  ...                  0.0                   100.0\n1            1.0       10081  ...                  0.0                   100.0\n2            1.5       10081  ...                  0.0                   100.0\n3            2.0       10081  ...                  0.0                   100.0\n\n[4 rows x 5 columns]"
-}
