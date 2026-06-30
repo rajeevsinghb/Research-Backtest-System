@@ -30,12 +30,12 @@ CONFIG = {
                 "symbol": "BTC/USDT",
                 "timeframe": "1m",
                 "since_date": "2025-01-01T00:00:00Z",   # set your start date
-                "until_date": "2025-02-01T00:00:00Z",   # set your end date
-                "cache_path": "data/leadlag/raw1/BTCUSDT_1m_coinbase_2025.parquet",
-                "parallel_workers": 1,    # how many monthly chunks fetched concurrently
+                "until_date": "2026-01-01T00:00:00Z",   # set your end date
+                "cache_path": "data/leadlag/raw/BTCUSDT_1m_coinbase_2025.parquet",
+                "parallel_workers": 5,    # how many monthly chunks fetched concurrently
                 "merge_chunks": False,     # True = single final file, False = keep chunks separate
                 "force_refresh": False,   # True = full re-fetch, overwrite cache
-                "update_latest": False,   # True = fetch only new candles since last cache, append
+                "update_latest": True,   # True = fetch only new candles since last cache, append
             },
         },
 
