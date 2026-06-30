@@ -1,4 +1,4 @@
-name: Run Research System
+name: Run Research Engine
 
 # Manual trigger only for now — cron schedule can be added later
 on:
@@ -26,6 +26,8 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run main.py
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
           python main.py
 
@@ -33,6 +35,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/ outputs/
+          git add data/
+          [ -d outputs ] && git add outputs/ || true
           git diff --cached --quiet || git commit -m "Update data and outputs"
+          git pull --rebase origin main
           git push
