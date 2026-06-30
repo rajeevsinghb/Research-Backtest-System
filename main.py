@@ -32,7 +32,7 @@ CONFIG = {
                 "since_date": "2025-01-01T00:00:00Z",   # set your start date
                 "until_date": "2025-02-01T00:00:00Z",   # set your end date
                 "cache_path": "data/leadlag/raw1/BTCUSDT_1m_coinbase_2025.parquet",
-                "parallel_workers": 0,    # how many monthly chunks fetched concurrently
+                "parallel_workers": 1,    # how many monthly chunks fetched concurrently
                 "merge_chunks": False,     # True = single final file, False = keep chunks separate
                 "force_refresh": False,   # True = full re-fetch, overwrite cache
                 "update_latest": False,   # True = fetch only new candles since last cache, append
