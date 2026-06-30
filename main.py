@@ -23,6 +23,7 @@ CONFIG = {
     "datasets": {
         # key name (your choice) -> {source, params}
         "okx_btc": {
+            "enabled": True,          # set False to skip this dataset without deleting/commenting it
             "source": "ccxt_fetch",
             "params": {
                 "exchange": "okx",
@@ -39,6 +40,7 @@ CONFIG = {
         },
 
         "kucoin_btc": {
+            "enabled": True,          # set False to skip this dataset without deleting/commenting it
             "source": "ccxt_fetch",
             "params": {
                 "exchange": "kucoin",
@@ -82,6 +84,7 @@ CONFIG = {
 #
 # --- ccxt_fetch (crypto, any exchange — supports large historical pulls via chunking) ---
 # "my_dataset_name": {
+#     "enabled": True,
 #     "source": "ccxt_fetch",
 #     "params": {
 #         "exchange": "okx",                    # <-- change exchange
@@ -99,6 +102,7 @@ CONFIG = {
 #
 # --- yfinance_fetch (stocks/forex/commodities/indices) ---
 # "my_dataset_name": {
+#     "enabled": True,
 #     "source": "yfinance_fetch",
 #     "params": {
 #         "ticker": "GC=F",                     # <-- change ticker (see README table for codes)
@@ -113,6 +117,7 @@ CONFIG = {
 #
 # --- pycoingecko_fetch (BTC dominance / total market cap / coin price) ---
 # "my_dataset_name": {
+#     "enabled": True,
 #     "source": "pycoingecko_fetch",
 #     "params": {
 #         "metric": "total_market_cap",         # <-- change: btc_dominance / total_market_cap / coin_price
@@ -126,6 +131,7 @@ CONFIG = {
 #
 # --- fred_fetch (official US macro data — needs FRED_API_KEY env var) ---
 # "my_dataset_name": {
+#     "enabled": True,
 #     "source": "fred_fetch",
 #     "params": {
 #         "series_id": "DGS10",                 # <-- change series code (see README table)
@@ -139,6 +145,7 @@ CONFIG = {
 #
 # --- local_parquet (any externally-sourced Parquet you've placed manually) ---
 # "my_dataset_name": {
+#     "enabled": True,
 #     "source": "local_parquet",
 #     "params": {"path": "data/CHANGE_ME.parquet"},
 # },
@@ -146,14 +153,30 @@ CONFIG = {
 
 
 def _load_datasets_parallel(datasets_config: dict) -> dict:
-    """Loads all configured datasets concurrently (e.g. fetching 2 exchanges
+    """Loads all ENABLED datasets concurrently (e.g. fetching 2 exchanges
     at the same time instead of one after another) using a thread pool —
     each data source function itself stays plain/synchronous, this just
-    runs several of them at once."""
+    runs several of them at once.
+
+    Any dataset entry with "enabled": False is skipped entirely (no fetch,
+    no network call) — set it to True (or simply omit the key, which
+    defaults to True) to include it again. No need to comment/delete it."""
+    active_datasets = {
+        key: spec for key, spec in datasets_config.items()
+        if spec.get("enabled", True)
+    }
+    skipped = [key for key in datasets_config if key not in active_datasets]
+    if skipped:
+        print(f"[skipped] Disabled datasets (enabled=False): {skipped}")
+
     data = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(datasets_config) or 1) as executor:
+    if not active_datasets:
+        print("[warning] No enabled datasets to load.")
+        return data
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(active_datasets) or 1) as executor:
         future_to_key = {}
-        for key, spec in datasets_config.items():
+        for key, spec in active_datasets.items():
             source_func = DATA_SOURCE_REGISTRY[spec["source"]]
             future = executor.submit(source_func, spec["params"])
             future_to_key[future] = (key, spec["source"])
@@ -164,7 +187,7 @@ def _load_datasets_parallel(datasets_config: dict) -> dict:
             data[key] = df
             size_mb = df.memory_usage(deep=True).sum() / (1024 * 1024)
 
-            cache_path = datasets_config[key]["params"].get("cache_path")
+            cache_path = active_datasets[key]["params"].get("cache_path")
             disk_size_str = ""
             if cache_path and os.path.exists(cache_path):
                 disk_mb = os.path.getsize(cache_path) / (1024 * 1024)
@@ -172,8 +195,8 @@ def _load_datasets_parallel(datasets_config: dict) -> dict:
 
             print(f"[loaded] {key} -> {len(df):,} rows, ~{size_mb:.2f} MB in memory{disk_size_str} (source: {source_name})")
 
-    # preserve original config order in the returned dict
-    return {key: data[key] for key in datasets_config}
+    # preserve original config order in the returned dict (enabled ones only)
+    return {key: data[key] for key in active_datasets}
 
 
 def run(config: dict):
