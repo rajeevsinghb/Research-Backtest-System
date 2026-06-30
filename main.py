@@ -26,21 +26,25 @@ CONFIG = {
             "enabled": True,          # set False to skip this dataset without deleting/commenting it
             "source": "ccxt_fetch",
             "params": {
-                "exchange": "coinbase",
+                "exchange": "okx",
                 "symbol": "BTC/USDT",
                 "timeframe": "1m",
-                "since_date": "2025-01-01T00:00:00Z",   # set your start date
-                "until_date": "2026-01-01T00:00:00Z",   # set your end date
-                "cache_path": "data/leadlag/raw/BTCUSDT_1m_coinbase_2025.parquet",
-                "parallel_workers": 5,    # how many monthly chunks fetched concurrently
-                "merge_chunks": False,     # True = single final file, False = keep chunks separate
+                "since_date": "2025-11-27T00:00:00Z",   # set your start date
+                "until_date": "2026-06-27T00:00:00Z",   # set your end date
+                "cache_path": "data/leadlag/raw/BTCUSDT_1m_okx.parquet",
+                "parallel_workers": 5,    # how many monthly chunks fetched concurrently (use 1-2 for strict exchanges)
+                "merge_chunks": True,     # True = single final file, False = keep chunks separate
                 "force_refresh": False,   # True = full re-fetch, overwrite cache
-                "update_latest": True,   # True = fetch only new candles since last cache, append
+                "update_latest": False,   # True = fetch only new candles since last cache, append
+                "fill_missing": False,    # True = re-fetch ONLY chunks still marked INCOMPLETE (use after a rate-limited run)
+                "retry_count": 8,         # max retries per failed API call
+                "retry_base_wait": 3,     # seconds before first retry
+                "retry_max_wait": 60,     # max seconds between retries (exponential backoff cap)
             },
         },
 
         "kucoin_btc": {
-            "enabled": False,          # set False to skip this dataset without deleting/commenting it
+            "enabled": True,          # set False to skip this dataset without deleting/commenting it
             "source": "ccxt_fetch",
             "params": {
                 "exchange": "kucoin",
@@ -53,6 +57,10 @@ CONFIG = {
                 "merge_chunks": True,
                 "force_refresh": False,
                 "update_latest": False,
+                "fill_missing": False,
+                "retry_count": 8,
+                "retry_base_wait": 3,
+                "retry_max_wait": 60,
             },
         },
 
@@ -65,7 +73,7 @@ CONFIG = {
 
     "indicators": [],          # single or multiple — empty list [] = skip indicators
 
-    "scenarios": [],        # single or multiple
+    "scenarios": ["exchange_price_gap"],        # single or multiple
 
     "scenario_params": {
         "exchange_price_gap": {"thresholds": [0.5, 1.0, 1.5, 2.0]},   # band edges, in %
@@ -93,10 +101,14 @@ CONFIG = {
 #         "since_date": "2016-01-01T00:00:00Z", # <-- e.g. for 10 years of data
 #         "until_date": "2026-06-27T00:00:00Z",
 #         "cache_path": "data/crypto/raw/CHANGE_ME.parquet",
-#         "parallel_workers": 8,                # <-- how many months fetched concurrently
+#         "parallel_workers": 8,                # <-- how many months fetched concurrently (use 1-2 for strict exchanges e.g. Coinbase)
 #         "merge_chunks": True,                 # <-- False = keep monthly chunk files separate
 #         "force_refresh": False,
 #         "update_latest": False,
+#         "fill_missing": False,                # <-- True = re-fetch ONLY chunks still INCOMPLETE (top-up after rate-limited run)
+#         "retry_count": 8,
+#         "retry_base_wait": 3,
+#         "retry_max_wait": 60,
 #     },
 # },
 #
@@ -194,6 +206,18 @@ def _load_datasets_parallel(datasets_config: dict) -> dict:
                 disk_size_str = f", {disk_mb:.2f} MB on disk (Parquet)"
 
             print(f"[loaded] {key} -> {len(df):,} rows, ~{size_mb:.2f} MB in memory{disk_size_str} (source: {source_name})")
+
+            # If this source attached a completeness report (e.g. ccxt_fetch's
+            # monthly chunking), save it to outputs/ so it can be viewed
+            # directly without digging through GitHub Actions logs.
+            report = getattr(df, "attrs", {}).get("completeness_report")
+            if report:
+                import pandas as pd
+                from core.output_writer import save_result
+                report_path = save_result(f"completeness_{key}", pd.DataFrame(report))
+                incomplete_count = sum(1 for r in report if r["status"] == "INCOMPLETE")
+                print(f"  [completeness report saved] {report_path} "
+                      f"({len(report) - incomplete_count}/{len(report)} chunks OK)")
 
     # preserve original config order in the returned dict (enabled ones only)
     return {key: data[key] for key in active_datasets}
