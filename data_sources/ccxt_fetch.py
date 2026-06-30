@@ -4,16 +4,16 @@ data_sources/ccxt_fetch.py
 Data source: fetch OHLCV from a crypto exchange via CCXT, with:
   - Monthly chunking + controlled parallel fetching (for large historical
     pulls like 10 years of 1m data)
-  - Resume support — already-fetched, complete chunks are skipped, so a
-    crashed/interrupted run can simply be re-run and it continues where
-    it left off
-  - Progress reporting (chunks completed / remaining)
-  - Automatic completeness verification per chunk and for the final
-    merged file (expected candle count vs actual, based on date range and
-    timeframe) — so missing data is caught automatically instead of you
-    having to manually check
-  - Built-in Parquet caching (same 3 modes as before: default / update_latest
-    / force_refresh)
+  - Resume support — already-complete chunks are skipped on re-run
+  - Configurable exponential-backoff retries (tune per exchange — some,
+    like Coinbase, need slower/more patient retrying than others)
+  - "fill_missing" mode — re-fetches ONLY the chunks that are still
+    incomplete, without re-downloading chunks that are already complete
+  - Automatic completeness verification (expected candle count vs actual)
+    per chunk, with a structured report returned alongside the data so
+    main.py can save it to outputs/ for easy viewing (no need to dig
+    through GitHub Actions logs)
+  - Built-in Parquet caching
 
 Registered name: "ccxt_fetch"
 
@@ -24,21 +24,31 @@ params expected:
     since_date       : str   ISO8601, e.g. "2016-01-01T00:00:00Z"
     until_date       : str or None
     limit            : int   candles per API call (default 1000)
-    cache_path       : str   final merged file path,
-                             e.g. "data/crypto/raw/BTCUSDT_1m_okx_10y.parquet"
-    chunk_dir        : str   (optional) where per-month chunk files are kept,
-                             default: <cache_path's folder>/_chunks/<symbol>_<timeframe>_<exchange>/
-    parallel_workers : int   how many monthly chunks to fetch concurrently (default 5)
-    merge_chunks     : bool  True = combine all chunks into one final file at cache_path (default True)
-                             False = leave chunks as separate files, no merge, no cache_path write
-    force_refresh    : bool  True = ignore all existing chunk/cache files, re-fetch everything
-    update_latest    : bool  True = only fetch chunks from the last cached month onward, append
+    cache_path       : str   final merged file path
+    chunk_dir        : str   (optional) per-month chunk file location
+    parallel_workers : int   how many monthly chunks fetched concurrently (default 5;
+                             use 1-2 for strict exchanges like Coinbase)
+    merge_chunks     : bool  True = combine all chunks into one final file (default True)
+    force_refresh    : bool  True = ignore all existing data, re-fetch everything
+    update_latest    : bool  True = only fetch chunks from the last cached month onward
+    fill_missing     : bool  True = re-fetch ONLY chunks that are currently incomplete
+                             (the ones flagged INCOMPLETE in a previous run), leaving
+                             complete chunks untouched. Use this to "top up" a dataset
+                             after a rate-limited run, without re-downloading everything.
+    retry_count      : int   max retry attempts per failed API call (default 8)
+    retry_base_wait  : float seconds to wait before the FIRST retry (default 3)
+    retry_max_wait   : float maximum seconds to wait between retries, cap (default 60)
+                             Backoff formula: wait = min(retry_base_wait * 2^(attempt-1), retry_max_wait)
 
 Output: standardized DataFrame with columns: timestamp, open, high, low, close, volume
+
+The completeness report (per chunk: expected/actual/pct) is attached to the
+returned DataFrame as df.attrs["completeness_report"] (a list of dicts) so
+main.py can pick it up and save it without changing this function's return
+type.
 """
 
 import os
-import time
 import asyncio
 import concurrent.futures
 import pandas as pd
@@ -47,10 +57,6 @@ import ccxt.async_support as ccxt_async
 from core.registry import register_data_source
 
 
-# ============================================================
-# Timeframe -> minutes (used to calculate expected candle counts
-# for completeness verification)
-# ============================================================
 TIMEFRAME_MINUTES = {
     "1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30,
     "1h": 60, "2h": 120, "4h": 240, "6h": 360, "12h": 720,
@@ -59,7 +65,6 @@ TIMEFRAME_MINUTES = {
 
 
 def _month_chunks(since_date: str, until_date: str):
-    """Splits a date range into a list of (chunk_label, chunk_start, chunk_end) month-by-month."""
     start = pd.Timestamp(since_date)
     end = pd.Timestamp(until_date) if until_date else pd.Timestamp.utcnow()
 
@@ -80,8 +85,8 @@ def _expected_candles(chunk_start, chunk_end, timeframe_minutes):
     return max(int(total_minutes // timeframe_minutes), 0)
 
 
-async def _fetch_range_async(exchange_name, symbol, timeframe, since_ts, until_ts, limit):
-    """Fetches one continuous range using pagination. Returns a DataFrame."""
+async def _fetch_range_async(exchange_name, symbol, timeframe, since_ts, until_ts, limit,
+                              retry_count, retry_base_wait, retry_max_wait):
     exchange_class = getattr(ccxt_async, exchange_name)
     exchange = exchange_class({"enableRateLimit": True})
 
@@ -96,11 +101,11 @@ async def _fetch_range_async(exchange_name, symbol, timeframe, since_ts, until_t
                 retries = 0
             except Exception as e:
                 retries += 1
-                if retries > 5:
-                    print(f"    [error] {symbol} giving up after 5 retries: {e}")
+                if retries > retry_count:
+                    print(f"    [give up] {symbol} after {retry_count} retries: {e}")
                     break
-                wait = min(2 ** retries, 30)
-                print(f"    [retry {retries}] {symbol} error: {e} — waiting {wait}s")
+                wait = min(retry_base_wait * (2 ** (retries - 1)), retry_max_wait)
+                print(f"    [retry {retries}/{retry_count}] {symbol} error: {e} — waiting {wait:.0f}s")
                 await asyncio.sleep(wait)
                 continue
 
@@ -110,10 +115,6 @@ async def _fetch_range_async(exchange_name, symbol, timeframe, since_ts, until_t
             all_candles += batch
             last_ts = batch[-1][0]
             if last_ts <= cursor:
-                # Exchange returned a stale/non-advancing batch (some exchanges,
-                # e.g. Kraken, can ignore `since` for very old ranges) — stop here
-                # rather than looping forever; completeness check downstream will
-                # flag this chunk as incomplete so it's visible, not silent.
                 break
             cursor = last_ts + 1
             await asyncio.sleep(exchange.rateLimit / 1000)
@@ -130,11 +131,14 @@ async def _fetch_range_async(exchange_name, symbol, timeframe, since_ts, until_t
         await exchange.close()
 
 
-def _fetch_one_chunk(exchange_name, symbol, timeframe, chunk_start, chunk_end, limit):
-    """Sync wrapper (runs its own asyncio event loop) — safe to call from a thread pool worker."""
+def _fetch_one_chunk(exchange_name, symbol, timeframe, chunk_start, chunk_end, limit,
+                      retry_count, retry_base_wait, retry_max_wait):
     since_ts = int(chunk_start.timestamp() * 1000)
     until_ts = int(chunk_end.timestamp() * 1000)
-    return asyncio.run(_fetch_range_async(exchange_name, symbol, timeframe, since_ts, until_ts, limit))
+    return asyncio.run(_fetch_range_async(
+        exchange_name, symbol, timeframe, since_ts, until_ts, limit,
+        retry_count, retry_base_wait, retry_max_wait
+    ))
 
 
 def _chunk_filepath(chunk_dir, label):
@@ -150,14 +154,17 @@ def get_data(params: dict) -> pd.DataFrame:
     until_date = params.get("until_date")
     limit = params.get("limit", 1000)
     cache_path = params.get("cache_path")
-    parallel_workers = params.get("parallel_workers", 5)
+    parallel_workers = max(params.get("parallel_workers", 5), 1)  # never allow 0/negative
     merge_chunks = params.get("merge_chunks", True)
     force_refresh = params.get("force_refresh", False)
     update_latest = params.get("update_latest", False)
+    fill_missing = params.get("fill_missing", False)
+    retry_count = params.get("retry_count", 8)
+    retry_base_wait = params.get("retry_base_wait", 3)
+    retry_max_wait = params.get("retry_max_wait", 60)
 
     if timeframe not in TIMEFRAME_MINUTES:
-        raise ValueError(f"Unsupported timeframe '{timeframe}' for completeness checking. "
-                          f"Supported: {list(TIMEFRAME_MINUTES.keys())}")
+        raise ValueError(f"Unsupported timeframe '{timeframe}'. Supported: {list(TIMEFRAME_MINUTES.keys())}")
     tf_minutes = TIMEFRAME_MINUTES[timeframe]
 
     safe_symbol = symbol.replace("/", "")
@@ -167,12 +174,14 @@ def get_data(params: dict) -> pd.DataFrame:
                                           f"{safe_symbol}_{timeframe}_{exchange}")
     chunk_dir = params.get("chunk_dir", default_chunk_dir)
 
-    # ---- No cache_path / chunk_dir at all -> simple one-shot fetch, no chunking, no caching ----
     if not chunk_dir:
         print(f"[no cache] Fetching {symbol} from {exchange} (no chunking) ...")
         since_ts = int(pd.Timestamp(since_date).timestamp() * 1000)
         until_ts = int((pd.Timestamp(until_date) if until_date else pd.Timestamp.utcnow()).timestamp() * 1000)
-        return asyncio.run(_fetch_range_async(exchange, symbol, timeframe, since_ts, until_ts, limit))
+        df = asyncio.run(_fetch_range_async(exchange, symbol, timeframe, since_ts, until_ts, limit,
+                                             retry_count, retry_base_wait, retry_max_wait))
+        df.attrs["completeness_report"] = []
+        return df
 
     os.makedirs(chunk_dir, exist_ok=True)
 
@@ -183,16 +192,33 @@ def get_data(params: dict) -> pd.DataFrame:
 
     all_chunks = _month_chunks(since_date, until_date)
 
-    if update_latest and os.path.exists(chunk_dir) and os.listdir(chunk_dir):
+    if update_latest and os.listdir(chunk_dir):
         existing_labels = sorted([f.replace(".parquet", "") for f in os.listdir(chunk_dir) if f.endswith(".parquet")])
         if existing_labels:
             last_label = existing_labels[-1]
             all_chunks = [c for c in all_chunks if c[0] >= last_label]
             print(f"[update_latest] Will only (re)fetch chunks from {last_label} onward.")
 
+    if fill_missing:
+        print(f"[fill_missing] Checking which chunks are still incomplete ...")
+        to_refetch = []
+        for label, chunk_start, chunk_end in all_chunks:
+            chunk_path = _chunk_filepath(chunk_dir, label)
+            expected = _expected_candles(chunk_start, chunk_end, tf_minutes)
+            if os.path.exists(chunk_path):
+                existing = pd.read_parquet(chunk_path)
+                pct = (len(existing) / expected * 100) if expected else 100.0
+                if pct < 99.0:
+                    to_refetch.append((label, chunk_start, chunk_end))
+            else:
+                to_refetch.append((label, chunk_start, chunk_end))
+        print(f"[fill_missing] {len(to_refetch)}/{len(all_chunks)} chunks need (re)fetching.")
+        all_chunks = to_refetch
+
     total_chunks = len(all_chunks)
-    print(f"\n[{symbol} / {exchange} / {timeframe}] Total monthly chunks to process: {total_chunks}")
-    print(f"  Parallel workers: {parallel_workers} | chunk dir: {chunk_dir}\n")
+    print(f"\n[{symbol} / {exchange} / {timeframe}] Chunks to process: {total_chunks}")
+    print(f"  Parallel workers: {parallel_workers} | retries: {retry_count} "
+          f"(base {retry_base_wait}s, max {retry_max_wait}s) | chunk dir: {chunk_dir}\n")
 
     completed = 0
     completeness_report = []
@@ -202,52 +228,57 @@ def get_data(params: dict) -> pd.DataFrame:
         chunk_path = _chunk_filepath(chunk_dir, label)
         expected = _expected_candles(chunk_start, chunk_end, tf_minutes)
 
-        # Resume: skip if this chunk file already exists and looks complete
-        if os.path.exists(chunk_path) and not force_refresh:
+        if os.path.exists(chunk_path) and not force_refresh and not fill_missing:
             existing = pd.read_parquet(chunk_path)
             pct = (len(existing) / expected * 100) if expected else 100.0
-            if pct >= 99.0:  # treat as complete (allow tiny tolerance for exchange downtime gaps)
+            if pct >= 99.0:
                 return label, len(existing), expected, pct, "resumed (already complete)"
 
-        df = _fetch_one_chunk(exchange, symbol, timeframe, chunk_start, chunk_end, limit)
+        df = _fetch_one_chunk(exchange, symbol, timeframe, chunk_start, chunk_end, limit,
+                               retry_count, retry_base_wait, retry_max_wait)
         df.to_parquet(chunk_path, index=False)
         actual = len(df)
         pct = (actual / expected * 100) if expected else 100.0
         return label, actual, expected, pct, "fetched"
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_workers) as executor:
-        futures = [executor.submit(process_chunk, c) for c in all_chunks]
-        for future in concurrent.futures.as_completed(futures):
-            label, actual, expected, pct, status = future.result()
-            completed += 1
-            completeness_report.append((label, actual, expected, pct))
-            flag = "OK" if pct >= 99.0 else "INCOMPLETE"
-            print(f"  [{completed}/{total_chunks}] {label} -> {actual:,}/{expected:,} candles "
-                  f"({pct:.1f}%) [{flag}] ({status})")
+    if total_chunks > 0:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_workers) as executor:
+            futures = [executor.submit(process_chunk, c) for c in all_chunks]
+            for future in concurrent.futures.as_completed(futures):
+                label, actual, expected, pct, status = future.result()
+                completed += 1
+                completeness_report.append({
+                    "month": label, "actual_candles": actual, "expected_candles": expected,
+                    "pct_complete": round(pct, 2), "status": "OK" if pct >= 99.0 else "INCOMPLETE",
+                    "fetch_status": status,
+                })
+                flag = "OK" if pct >= 99.0 else "INCOMPLETE"
+                print(f"  [{completed}/{total_chunks}] {label} -> {actual:,}/{expected:,} candles "
+                      f"({pct:.1f}%) [{flag}] ({status})")
 
-    # ---- Completeness summary ----
-    incomplete = [r for r in completeness_report if r[3] < 99.0]
+    incomplete = [r for r in completeness_report if r["status"] == "INCOMPLETE"]
     print(f"\n[completeness check] {len(completeness_report) - len(incomplete)}/{len(completeness_report)} "
-          f"chunks fully complete.")
+          f"chunks fully complete (this run).")
     if incomplete:
-        print("  WARNING — the following chunks are INCOMPLETE (re-run to retry just these):")
-        for label, actual, expected, pct in incomplete:
-            print(f"    - {label}: {actual:,}/{expected:,} ({pct:.1f}%)")
-    else:
-        print("  All chunks verified complete.")
+        print("  WARNING — these chunks are still INCOMPLETE (use fill_missing=True to retry just these):")
+        for r in incomplete:
+            print(f"    - {r['month']}: {r['actual_candles']:,}/{r['expected_candles']:,} ({r['pct_complete']}%)")
+
+    # Always read the FULL set of chunks on disk for the actual returned data
+    # (covers chunks that already existed before fill_missing/incremental runs)
+    full_chunk_list = _month_chunks(since_date, until_date)
+    all_dfs = [pd.read_parquet(_chunk_filepath(chunk_dir, c[0])) for c in full_chunk_list
+               if os.path.exists(_chunk_filepath(chunk_dir, c[0]))]
 
     if not merge_chunks:
         print("[merge_chunks=False] Leaving chunks as separate files, no merged output produced.")
-        return pd.concat(
-            [pd.read_parquet(_chunk_filepath(chunk_dir, c[0])) for c in all_chunks
-             if os.path.exists(_chunk_filepath(chunk_dir, c[0]))],
-            ignore_index=True
-        ) if all_chunks else pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+        result = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame(
+            columns=["timestamp", "open", "high", "low", "close", "volume"]
+        )
+        result.attrs["completeness_report"] = completeness_report
+        return result
 
-    # ---- Merge all chunks into the final cache file ----
-    print(f"[merging] Combining {total_chunks} chunks into final file ...")
-    all_dfs = [pd.read_parquet(_chunk_filepath(chunk_dir, c[0])) for c in all_chunks
-               if os.path.exists(_chunk_filepath(chunk_dir, c[0]))]
+    print(f"[merging] Combining {len(all_dfs)} chunks into final file ...")
     merged = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame(
         columns=["timestamp", "open", "high", "low", "close", "volume"]
     )
@@ -258,4 +289,5 @@ def get_data(params: dict) -> pd.DataFrame:
         merged.to_parquet(cache_path, index=False)
         print(f"[saved] Final merged file -> {cache_path} ({len(merged):,} total rows)")
 
+    merged.attrs["completeness_report"] = completeness_report
     return merged
