@@ -213,11 +213,20 @@ def _load_datasets_parallel(datasets_config: dict) -> dict:
             report = getattr(df, "attrs", {}).get("completeness_report")
             if report:
                 import pandas as pd
-                from core.output_writer import save_result
-                report_path = save_result(f"completeness_{key}", pd.DataFrame(report))
+                from core.output_writer import save_result as _save
+
+                report_df = pd.DataFrame(report)
+                # reorder columns for readability
+                col_order = ["month", "actual_candles", "expected_candles",
+                             "pct_complete", "status", "file_size_kb", "fetch_status"]
+                report_df = report_df[[c for c in col_order if c in report_df.columns]]
+
+                total_kb = report_df["file_size_kb"].sum() if "file_size_kb" in report_df.columns else 0
+                report_path = _save(f"completeness_{key}", report_df)
                 incomplete_count = sum(1 for r in report if r["status"] == "INCOMPLETE")
                 print(f"  [completeness report saved] {report_path} "
-                      f"({len(report) - incomplete_count}/{len(report)} chunks OK)")
+                      f"({len(report) - incomplete_count}/{len(report)} chunks OK, "
+                      f"total size: {total_kb/1024:.2f} MB)")
 
     # preserve original config order in the returned dict (enabled ones only)
     return {key: data[key] for key in active_datasets}
