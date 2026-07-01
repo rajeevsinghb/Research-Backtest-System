@@ -145,6 +145,19 @@ def _chunk_filepath(chunk_dir, label):
     return os.path.join(chunk_dir, f"{label}.parquet")
 
 
+def _save_parquet(df: pd.DataFrame, path: str):
+    """Save with float32 dtype + zstd compression.
+    - float32 vs float64: half the bytes, no meaningful precision loss for price/volume data
+    - zstd vs snappy (default): 30-40% smaller, same or faster read/write speed
+    Neither change affects downstream pandas operations — dtypes are transparent to
+    indicators/scenarios which only care about column names, not internal storage format."""
+    df = df.copy()
+    for col in ["open", "high", "low", "close", "volume"]:
+        if col in df.columns:
+            df[col] = df[col].astype("float32")
+    df.to_parquet(path, index=False, compression="zstd")
+
+
 @register_data_source("ccxt_fetch")
 def get_data(params: dict) -> pd.DataFrame:
     exchange = params["exchange"]
@@ -232,29 +245,31 @@ def get_data(params: dict) -> pd.DataFrame:
             existing = pd.read_parquet(chunk_path)
             pct = (len(existing) / expected * 100) if expected else 100.0
             if pct >= 99.0:
-                return label, len(existing), expected, pct, "resumed (already complete)"
+                size_kb = round(os.path.getsize(chunk_path) / 1024, 1)
+                return label, len(existing), expected, pct, "resumed (already complete)", size_kb
 
         df = _fetch_one_chunk(exchange, symbol, timeframe, chunk_start, chunk_end, limit,
                                retry_count, retry_base_wait, retry_max_wait)
-        df.to_parquet(chunk_path, index=False)
+        _save_parquet(df, chunk_path)
         actual = len(df)
         pct = (actual / expected * 100) if expected else 100.0
-        return label, actual, expected, pct, "fetched"
+        size_kb = round(os.path.getsize(chunk_path) / 1024, 1)
+        return label, actual, expected, pct, "fetched", size_kb
 
     if total_chunks > 0:
         with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_workers) as executor:
             futures = [executor.submit(process_chunk, c) for c in all_chunks]
             for future in concurrent.futures.as_completed(futures):
-                label, actual, expected, pct, status = future.result()
+                label, actual, expected, pct, status, size_kb = future.result()
                 completed += 1
                 completeness_report.append({
                     "month": label, "actual_candles": actual, "expected_candles": expected,
                     "pct_complete": round(pct, 2), "status": "OK" if pct >= 99.0 else "INCOMPLETE",
-                    "fetch_status": status,
+                    "file_size_kb": size_kb, "fetch_status": status,
                 })
                 flag = "OK" if pct >= 99.0 else "INCOMPLETE"
                 print(f"  [{completed}/{total_chunks}] {label} -> {actual:,}/{expected:,} candles "
-                      f"({pct:.1f}%) [{flag}] ({status})")
+                      f"({pct:.1f}%) [{flag}] ({size_kb} KB) ({status})")
 
     incomplete = [r for r in completeness_report if r["status"] == "INCOMPLETE"]
     print(f"\n[completeness check] {len(completeness_report) - len(incomplete)}/{len(completeness_report)} "
@@ -286,7 +301,7 @@ def get_data(params: dict) -> pd.DataFrame:
 
     if cache_path:
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        merged.to_parquet(cache_path, index=False)
+        _save_parquet(merged, cache_path)
         print(f"[saved] Final merged file -> {cache_path} ({len(merged):,} total rows)")
 
     merged.attrs["completeness_report"] = completeness_report
