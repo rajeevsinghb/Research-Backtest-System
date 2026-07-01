@@ -267,4 +267,97 @@ if __name__ == "__main__":
     load_everything()
     print("Available components:", list_registered())
     print()
-    run(CONFIG)
+
+    # ── GitHub Actions workflow_dispatch override ──────────────
+    # If workflow inputs are present (via env vars set in run_engine.yml),
+    # override the CONFIG above with those values so the GitHub Actions
+    # UI form controls what actually runs — no editing of this file needed.
+    # When running locally (no RUN_DS1_EXCHANGE env var), CONFIG above is used as-is.
+
+    def _env(key, default=None):
+        return os.environ.get(key, default)
+
+    def _bool(val):
+        return str(val).lower() in ('true', '1', 'yes')
+
+    if _env("RUN_DS1_EXCHANGE"):
+        print("[workflow] Overriding CONFIG from GitHub Actions inputs...")
+
+        pw = int(_env("RUN_PARALLEL_WORKERS", "3"))
+        mc = _bool(_env("RUN_MERGE_CHUNKS", "true"))
+        fr = _bool(_env("RUN_FORCE_REFRESH", "false"))
+        fm = _bool(_env("RUN_FILL_MISSING", "false"))
+
+        def _ds_params(prefix, exchange, symbol, timeframe, since, until):
+            safe = symbol.replace("/", "")
+            return {
+                "exchange": exchange,
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "since_date": f"{since}T00:00:00Z",
+                "until_date": f"{until}T00:00:00Z",
+                "cache_path": f"data/crypto/raw/{safe}_{timeframe}_{exchange}.parquet",
+                "parallel_workers": max(pw, 1),
+                "merge_chunks": mc,
+                "force_refresh": fr,
+                "fill_missing": fm,
+                "retry_count": 8,
+                "retry_base_wait": 3,
+                "retry_max_wait": 60,
+            }
+
+        workflow_datasets = {}
+
+        ds1_key = _env("RUN_DS1_KEY", "ds1")
+        if _bool(_env("RUN_DS1_ENABLED", "true")):
+            workflow_datasets[ds1_key] = {
+                "enabled": True,
+                "source": "ccxt_fetch",
+                "params": _ds_params(
+                    "ds1",
+                    _env("RUN_DS1_EXCHANGE", "okx"),
+                    _env("RUN_DS1_SYMBOL", "BTC/USDT"),
+                    _env("RUN_DS1_TIMEFRAME", "1m"),
+                    _env("RUN_DS1_SINCE", "2025-01-01"),
+                    _env("RUN_DS1_UNTIL", "2026-06-30"),
+                ),
+            }
+
+        ds2_key = _env("RUN_DS2_KEY", "ds2")
+        if _bool(_env("RUN_DS2_ENABLED", "false")):
+            workflow_datasets[ds2_key] = {
+                "enabled": True,
+                "source": "ccxt_fetch",
+                "params": _ds_params(
+                    "ds2",
+                    _env("RUN_DS2_EXCHANGE", "kucoin"),
+                    _env("RUN_DS2_SYMBOL", "BTC/USDT"),
+                    _env("RUN_DS2_TIMEFRAME", "1m"),
+                    _env("RUN_DS2_SINCE", "2025-01-01"),
+                    _env("RUN_DS2_UNTIL", "2026-06-30"),
+                ),
+            }
+
+        raw_ind = _env("RUN_INDICATORS", "")
+        indicators = [i.strip() for i in raw_ind.split(",") if i.strip()] if raw_ind else []
+
+        raw_sc = _env("RUN_SCENARIOS", "")
+        scenarios = [s.strip() for s in raw_sc.split(",") if s.strip()] if raw_sc else []
+
+        raw_thr = _env("RUN_GAP_THRESHOLDS", "0.5,1.0,1.5,2.0")
+        thresholds = [float(t.strip()) for t in raw_thr.split(",") if t.strip()]
+
+        workflow_config = {
+            "datasets": workflow_datasets,
+            "indicators": indicators,
+            "scenarios": scenarios,
+            "scenario_params": {
+                "exchange_price_gap": {"thresholds": thresholds},
+            },
+            "save_outputs": True,
+        }
+
+        run(workflow_config)
+    else:
+        # Local run — use CONFIG defined above
+        run(CONFIG)
