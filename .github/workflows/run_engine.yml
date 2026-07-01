@@ -1,8 +1,131 @@
-name: Run Research Engine
+name: Run Research System
 
-# Manual trigger only for now — cron schedule can be added later
 on:
   workflow_dispatch:
+    inputs:
+
+      # ── Dataset 1 ──────────────────────────────────────────
+      ds1_enabled:
+        description: "Dataset 1 — enable?"
+        type: boolean
+        default: true
+
+      ds1_key:
+        description: "Dataset 1 — key name (used in output)"
+        type: string
+        default: "okx_btc"
+
+      ds1_exchange:
+        description: "Dataset 1 — exchange"
+        type: choice
+        default: "okx"
+        options: [okx, bybit, kucoin, binance, coinbase, kraken, mexc, gate]
+
+      ds1_symbol:
+        description: "Dataset 1 — symbol"
+        type: string
+        default: "BTC/USDT"
+
+      ds1_timeframe:
+        description: "Dataset 1 — timeframe"
+        type: choice
+        default: "1m"
+        options: ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"]
+
+      ds1_since_date:
+        description: "Dataset 1 — since date (YYYY-MM-DD)"
+        type: string
+        default: "2025-01-01"
+
+      ds1_until_date:
+        description: "Dataset 1 — until date (YYYY-MM-DD)"
+        type: string
+        default: "2026-06-30"
+
+      # ── Dataset 2 ──────────────────────────────────────────
+      ds2_enabled:
+        description: "Dataset 2 — enable?"
+        type: boolean
+        default: false
+
+      ds2_key:
+        description: "Dataset 2 — key name"
+        type: string
+        default: "kucoin_btc"
+
+      ds2_exchange:
+        description: "Dataset 2 — exchange"
+        type: choice
+        default: "kucoin"
+        options: [okx, bybit, kucoin, binance, coinbase, kraken, mexc, gate]
+
+      ds2_symbol:
+        description: "Dataset 2 — symbol"
+        type: string
+        default: "BTC/USDT"
+
+      ds2_timeframe:
+        description: "Dataset 2 — timeframe"
+        type: choice
+        default: "1m"
+        options: ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"]
+
+      ds2_since_date:
+        description: "Dataset 2 — since date (YYYY-MM-DD)"
+        type: string
+        default: "2025-01-01"
+
+      ds2_until_date:
+        description: "Dataset 2 — until date (YYYY-MM-DD)"
+        type: string
+        default: "2026-06-30"
+
+      # ── Fetch settings ─────────────────────────────────────
+      parallel_workers:
+        description: "Parallel workers (1 = sequential, safer for strict exchanges)"
+        type: string
+        default: "3"
+
+      merge_chunks:
+        description: "Merge monthly chunks into one final file?"
+        type: boolean
+        default: true
+
+      force_refresh:
+        description: "Force refresh (ignore existing cache, re-fetch all)?"
+        type: boolean
+        default: false
+
+      fill_missing:
+        description: "Fill missing (re-fetch only INCOMPLETE chunks)?"
+        type: boolean
+        default: false
+
+      # ── Indicators ─────────────────────────────────────────
+      indicators:
+        description: "Indicators (comma-separated, or leave blank for none)"
+        type: string
+        default: ""
+
+      # ── Scenarios ──────────────────────────────────────────
+      scenarios:
+        description: "Scenarios (comma-separated, or leave blank for none)"
+        type: choice
+        default: "exchange_price_gap"
+        options:
+          - ""
+          - "exchange_price_gap"
+          - "leadlag"
+          - "simple_summary"
+          - "exchange_price_gap,leadlag"
+          - "exchange_price_gap,simple_summary"
+          - "leadlag,simple_summary"
+          - "exchange_price_gap,leadlag,simple_summary"
+
+      gap_thresholds:
+        description: "exchange_price_gap — thresholds (comma-separated %)"
+        type: string
+        default: "0.5,1.0,1.5,2.0"
 
 permissions:
   contents: write
@@ -10,6 +133,30 @@ permissions:
 jobs:
   run-engine:
     runs-on: ubuntu-latest
+
+    env:
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      RUN_DS1_ENABLED: ${{ inputs.ds1_enabled }}
+      RUN_DS1_KEY: ${{ inputs.ds1_key }}
+      RUN_DS1_EXCHANGE: ${{ inputs.ds1_exchange }}
+      RUN_DS1_SYMBOL: ${{ inputs.ds1_symbol }}
+      RUN_DS1_TIMEFRAME: ${{ inputs.ds1_timeframe }}
+      RUN_DS1_SINCE: ${{ inputs.ds1_since_date }}
+      RUN_DS1_UNTIL: ${{ inputs.ds1_until_date }}
+      RUN_DS2_ENABLED: ${{ inputs.ds2_enabled }}
+      RUN_DS2_KEY: ${{ inputs.ds2_key }}
+      RUN_DS2_EXCHANGE: ${{ inputs.ds2_exchange }}
+      RUN_DS2_SYMBOL: ${{ inputs.ds2_symbol }}
+      RUN_DS2_TIMEFRAME: ${{ inputs.ds2_timeframe }}
+      RUN_DS2_SINCE: ${{ inputs.ds2_since_date }}
+      RUN_DS2_UNTIL: ${{ inputs.ds2_until_date }}
+      RUN_PARALLEL_WORKERS: ${{ inputs.parallel_workers }}
+      RUN_MERGE_CHUNKS: ${{ inputs.merge_chunks }}
+      RUN_FORCE_REFRESH: ${{ inputs.force_refresh }}
+      RUN_FILL_MISSING: ${{ inputs.fill_missing }}
+      RUN_INDICATORS: ${{ inputs.indicators }}
+      RUN_SCENARIOS: ${{ inputs.scenarios }}
+      RUN_GAP_THRESHOLDS: ${{ inputs.gap_thresholds }}
 
     steps:
       - name: Checkout repository
@@ -26,10 +173,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run main.py
-        env:
-          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-        run: |
-          python main.py
+        run: python main.py
 
       - name: Commit and push data + outputs
         run: |
@@ -37,6 +181,6 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/
           [ -d outputs ] && git add outputs/ || true
-          git diff --cached --quiet || git commit -m "Update data and outputs"
+          git diff --cached --quiet || git commit -m "Update data and outputs [${{ inputs.ds1_exchange }}/${{ inputs.ds1_symbol }}/${{ inputs.ds1_timeframe }}]"
           git pull --rebase origin main
           git push
