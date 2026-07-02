@@ -268,96 +268,87 @@ if __name__ == "__main__":
     print("Available components:", list_registered())
     print()
 
-    # ── GitHub Actions workflow_dispatch override ──────────────
-    # If workflow inputs are present (via env vars set in run_engine.yml),
-    # override the CONFIG above with those values so the GitHub Actions
-    # UI form controls what actually runs — no editing of this file needed.
-    # When running locally (no RUN_DS1_EXCHANGE env var), CONFIG above is used as-is.
+    # ── Web UI config override ─────────────────────────────────
+    # If workflow_config.json exists (committed by the GitHub Pages web UI),
+    # use it instead of the CONFIG dict above.
+    # This file is created by the web UI (docs/index.html) via GitHub API,
+    # then the workflow runs and main.py reads it here.
+    import json
 
-    def _env(key, default=None):
-        return os.environ.get(key, default)
+    wf_config_path = "workflow_config.json"
+    if os.path.exists(wf_config_path):
+        print(f"[web UI] Loading config from {wf_config_path} ...")
+        with open(wf_config_path) as f:
+            web_config = json.load(f)
+        print(f"[web UI] Datasets: {list(web_config.get('datasets', {}).keys())}")
+        print(f"[web UI] Indicators: {web_config.get('indicators', [])}")
+        print(f"[web UI] Scenarios: {web_config.get('scenarios', [])}")
+        run(web_config)
 
-    def _bool(val):
-        return str(val).lower() in ('true', '1', 'yes')
-
-    if _env("RUN_DS1_EXCHANGE"):
+    # ── GitHub Actions workflow_dispatch inputs override ───────
+    elif _env("RUN_DS1_EXCHANGE"):
         print("[workflow] Overriding CONFIG from GitHub Actions inputs...")
 
-        pw = int(_env("RUN_PARALLEL_WORKERS", "3"))
-        mc = _bool(_env("RUN_MERGE_CHUNKS", "true"))
-        fr = _bool(_env("RUN_FORCE_REFRESH", "false"))
-        fm = _bool(_env("RUN_FILL_MISSING", "false"))
+        pw = max(int(_env("RUN_PARALLEL_WORKERS", "3")), 1)
+        mc = _bool(_env("RUN_MERGE_CHUNKS", "false"))
+        retry_count = int(_env("RUN_RETRY_COUNT", "8"))
+        retry_base_wait = int(_env("RUN_RETRY_BASE_WAIT", "3"))
 
-        def _ds_params(prefix, exchange, symbol, timeframe, since, until):
+        # single cache_mode choice maps to 3 boolean flags
+        cache_mode = _env("RUN_CACHE_MODE", "normal")
+        force_refresh = (cache_mode == "force_refresh")
+        update_latest = (cache_mode == "update_latest")
+        fill_missing  = (cache_mode == "fill_missing")
+
+        def _ds_params(exchange, symbol, timeframe, since, until):
             safe = symbol.replace("/", "")
             return {
-                "exchange": exchange,
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "since_date": f"{since}T00:00:00Z",
-                "until_date": f"{until}T00:00:00Z",
+                "exchange": exchange, "symbol": symbol, "timeframe": timeframe,
+                "since_date": f"{since}T00:00:00Z", "until_date": f"{until}T00:00:00Z",
                 "cache_path": f"data/crypto/raw/{safe}_{timeframe}_{exchange}.parquet",
-                "parallel_workers": max(pw, 1),
-                "merge_chunks": mc,
-                "force_refresh": fr,
-                "fill_missing": fm,
-                "retry_count": 8,
-                "retry_base_wait": 3,
+                "parallel_workers": pw, "merge_chunks": mc,
+                "force_refresh": force_refresh, "update_latest": update_latest,
+                "fill_missing": fill_missing,
+                "retry_count": retry_count, "retry_base_wait": retry_base_wait,
                 "retry_max_wait": 60,
             }
 
         workflow_datasets = {}
-
         ds1_key = _env("RUN_DS1_KEY", "ds1")
         if _bool(_env("RUN_DS1_ENABLED", "true")):
-            workflow_datasets[ds1_key] = {
-                "enabled": True,
-                "source": "ccxt_fetch",
-                "params": _ds_params(
-                    "ds1",
-                    _env("RUN_DS1_EXCHANGE", "okx"),
-                    _env("RUN_DS1_SYMBOL", "BTC/USDT"),
-                    _env("RUN_DS1_TIMEFRAME", "1m"),
-                    _env("RUN_DS1_SINCE", "2025-01-01"),
-                    _env("RUN_DS1_UNTIL", "2026-06-30"),
-                ),
-            }
-
+            workflow_datasets[ds1_key] = {"enabled": True, "source": "ccxt_fetch", "params": _ds_params(
+                _env("RUN_DS1_EXCHANGE","okx"), _env("RUN_DS1_SYMBOL","BTC/USDT"),
+                _env("RUN_DS1_TIMEFRAME","1m"), _env("RUN_DS1_SINCE","2025-01-01"),
+                _env("RUN_DS1_UNTIL","2026-06-30"),
+            )}
         ds2_key = _env("RUN_DS2_KEY", "ds2")
         if _bool(_env("RUN_DS2_ENABLED", "false")):
-            workflow_datasets[ds2_key] = {
-                "enabled": True,
-                "source": "ccxt_fetch",
-                "params": _ds_params(
-                    "ds2",
-                    _env("RUN_DS2_EXCHANGE", "kucoin"),
-                    _env("RUN_DS2_SYMBOL", "BTC/USDT"),
-                    _env("RUN_DS2_TIMEFRAME", "1m"),
-                    _env("RUN_DS2_SINCE", "2025-01-01"),
-                    _env("RUN_DS2_UNTIL", "2026-06-30"),
-                ),
-            }
+            workflow_datasets[ds2_key] = {"enabled": True, "source": "ccxt_fetch", "params": _ds_params(
+                _env("RUN_DS2_EXCHANGE","kucoin"), _env("RUN_DS2_SYMBOL","BTC/USDT"),
+                _env("RUN_DS2_TIMEFRAME","1m"), _env("RUN_DS2_SINCE","2025-01-01"),
+                _env("RUN_DS2_UNTIL","2026-06-30"),
+            )}
 
-        raw_ind = _env("RUN_INDICATORS", "")
-        indicators = [i.strip() for i in raw_ind.split(",") if i.strip()] if raw_ind else []
+        raw_ind = _env("RUN_INDICATORS", "none")
+        indicators = [] if raw_ind in ("none","","None") else [i.strip() for i in raw_ind.split(",") if i.strip()]
 
-        raw_sc = _env("RUN_SCENARIOS", "")
-        scenarios = [s.strip() for s in raw_sc.split(",") if s.strip()] if raw_sc else []
+        raw_sc = _env("RUN_SCENARIOS", "none")
+        scenarios = [] if raw_sc in ("none","","None") else [s.strip() for s in raw_sc.split(",") if s.strip()]
 
-        raw_thr = _env("RUN_GAP_THRESHOLDS", "0.5,1.0,1.5,2.0")
-        thresholds = [float(t.strip()) for t in raw_thr.split(",") if t.strip()]
+        thresholds = [float(t.strip()) for t in _env("RUN_GAP_THRESHOLDS","0.5,1.0,1.5,2.0").split(",") if t.strip()]
+        ll_threshold = float(_env("RUN_LEADLAG_THRESHOLD","0.05"))
+        ll_max_lag = int(_env("RUN_LEADLAG_MAX_LAG","10"))
 
         workflow_config = {
-            "datasets": workflow_datasets,
-            "indicators": indicators,
-            "scenarios": scenarios,
+            "datasets": workflow_datasets, "indicators": indicators, "scenarios": scenarios,
             "scenario_params": {
                 "exchange_price_gap": {"thresholds": thresholds},
+                "leadlag": {"move_threshold_pct": ll_threshold, "max_lag": ll_max_lag},
             },
             "save_outputs": True,
         }
-
         run(workflow_config)
+
     else:
         # Local run — use CONFIG defined above
         run(CONFIG)
