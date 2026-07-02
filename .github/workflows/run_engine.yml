@@ -1,254 +1,72 @@
 name: Run Research System
 
-# ─────────────────────────────────────────────────────────────
-# HOW TO USE:
-#   Actions tab → Run Research System → Run workflow
-#   Fill in the form top-to-bottom, then click the green Run button.
-#
-# FLOW ORDER (top → bottom):
-#   1. WHAT DATA    — which exchanges/coins/dates to fetch
-#   2. HOW TO FETCH — speed, caching, retry behavior
-#   3. WHAT TO DO   — which indicators and scenarios to run
-#   4. SCENARIO SETTINGS — per-scenario parameters
-#
-# COMPLEX SCENARIOS / ADVANCED PARAMS:
-#   Edit main.py CONFIG directly on GitHub (pencil icon) for anything
-#   not exposed here (3rd dataset, custom paths, per-exchange retry tuning).
-# ─────────────────────────────────────────────────────────────
+# For advanced settings (retry, merge, leadlag params etc.)
+# edit main.py CONFIG directly on GitHub, then run this workflow.
 
 on:
   workflow_dispatch:
     inputs:
 
-      # ═══════════════════════════════════════════════════════
-      # 1. WHAT DATA — Dataset 1 (always available)
-      # ═══════════════════════════════════════════════════════
-
-      ds1_enabled:
-        description: "▶ Dataset 1 — enable this dataset?"
-        type: boolean
-        default: true
-
-      ds1_key:
-        description: "Dataset 1 — key name (appears in outputs, e.g. 'okx_btc')"
-        type: string
-        default: "okx_btc"
-
+      # ── 1. EXCHANGE & COIN ─────────────────────────────────
       ds1_exchange:
-        description: "Dataset 1 — exchange name"
+        description: "Exchange 1"
         type: choice
         default: "okx"
-        options:
-          - okx
-          - bybit
-          - kucoin
-          - binance
-          - coinbase
-          - kraken
-          - mexc
-          - gate
+        options: [okx, bybit, kucoin, binance, coinbase, kraken, mexc, gate]
 
       ds1_symbol:
-        description: "Dataset 1 — coin pair (e.g. BTC/USDT, ETH/USDT)"
+        description: "Coin pair"
         type: choice
         default: "BTC/USDT"
-        options:
-          - BTC/USDT
-          - ETH/USDT
-          - SOL/USDT
-          - BNB/USDT
-          - XRP/USDT
-          - ADA/USDT
-          - DOGE/USDT
-          - MATIC/USDT
+        options: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT, ADA/USDT, DOGE/USDT]
 
       ds1_timeframe:
-        description: "Dataset 1 — candle timeframe"
+        description: "Timeframe"
         type: choice
         default: "1m"
-        options:
-          - "1m"
-          - "3m"
-          - "5m"
-          - "15m"
-          - "30m"
-          - "1h"
-          - "4h"
-          - "1d"
+        options: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
 
+      # ── 2. DATE RANGE ──────────────────────────────────────
       ds1_since_date:
-        description: "Dataset 1 — start date  [format: YYYY-MM-DD]"
+        description: "From date  (YYYY-MM-DD)"
         type: string
         default: "2025-01-01"
 
       ds1_until_date:
-        description: "Dataset 1 — end date    [format: YYYY-MM-DD]"
+        description: "To date    (YYYY-MM-DD)"
         type: string
         default: "2026-06-30"
 
-      # ─────────────────────────────────────────────────────
-      # Dataset 2 (for cross-exchange comparison scenarios)
-      # Enable only when running exchange_price_gap or leadlag
-      # ─────────────────────────────────────────────────────
-
+      # ── 3. SECOND EXCHANGE (for comparison scenarios) ──────
       ds2_enabled:
-        description: "▶ Dataset 2 — enable? (needed for exchange_price_gap / leadlag)"
+        description: "Enable 2nd exchange? (needed for exchange_price_gap / leadlag)"
         type: boolean
         default: false
-
-      ds2_key:
-        description: "Dataset 2 — key name (e.g. 'kucoin_btc')"
-        type: string
-        default: "kucoin_btc"
 
       ds2_exchange:
-        description: "Dataset 2 — exchange name"
+        description: "Exchange 2  (only used if 2nd exchange is enabled above)"
         type: choice
         default: "kucoin"
-        options:
-          - okx
-          - bybit
-          - kucoin
-          - binance
-          - coinbase
-          - kraken
-          - mexc
-          - gate
+        options: [okx, bybit, kucoin, binance, coinbase, kraken, mexc, gate]
 
-      ds2_symbol:
-        description: "Dataset 2 — coin pair (should match Dataset 1 for comparison)"
-        type: choice
-        default: "BTC/USDT"
-        options:
-          - BTC/USDT
-          - ETH/USDT
-          - SOL/USDT
-          - BNB/USDT
-          - XRP/USDT
-          - ADA/USDT
-          - DOGE/USDT
-          - MATIC/USDT
-
-      ds2_timeframe:
-        description: "Dataset 2 — candle timeframe (should match Dataset 1)"
-        type: choice
-        default: "1m"
-        options:
-          - "1m"
-          - "3m"
-          - "5m"
-          - "15m"
-          - "30m"
-          - "1h"
-          - "4h"
-          - "1d"
-
-      ds2_since_date:
-        description: "Dataset 2 — start date  [format: YYYY-MM-DD]"
-        type: string
-        default: "2025-01-01"
-
-      ds2_until_date:
-        description: "Dataset 2 — end date    [format: YYYY-MM-DD]"
-        type: string
-        default: "2026-06-30"
-
-      # ═══════════════════════════════════════════════════════
-      # 2. HOW TO FETCH — caching and speed settings
-      # ═══════════════════════════════════════════════════════
-
-      parallel_workers:
-        description: |
-          Parallel monthly chunks fetched at once.
-          Tip: okx/bybit/kucoin → 5-8 safe | coinbase/kraken → 1-2 (strict rate limits)
-        type: choice
-        default: "3"
-        options:
-          - "1"
-          - "2"
-          - "3"
-          - "5"
-          - "8"
-          - "10"
-
+      # ── 4. FETCH MODE ──────────────────────────────────────
       cache_mode:
-        description: |
-          Cache mode — how to handle existing data:
-          • normal     = use cache if exists, fetch only if missing (default, fastest)
-          • fill_missing = re-fetch only INCOMPLETE chunks from last run (use after rate-limit errors)
-          • update_latest = append new candles since last cached date (daily refresh)
-          • force_refresh = ignore all cache, re-fetch everything (use rarely)
+        description: "Fetch mode  |  normal=use cache  fill_missing=retry incomplete  update_latest=append new  force_refresh=re-fetch all"
         type: choice
         default: "normal"
-        options:
-          - "normal"
-          - "fill_missing"
-          - "update_latest"
-          - "force_refresh"
+        options: [normal, fill_missing, update_latest, force_refresh]
 
-      merge_chunks:
-        description: "Merge monthly chunks into one final Parquet file? (False = keep separate, safer for large data)"
-        type: boolean
-        default: false
-
-      retry_count:
-        description: "Max retries per failed API call (increase for unstable connections)"
-        type: choice
-        default: "8"
-        options:
-          - "3"
-          - "5"
-          - "8"
-          - "10"
-          - "15"
-
-      retry_base_wait:
-        description: |
-          Seconds before first retry — exponential backoff from here.
-          Tip: strict exchanges (Coinbase) → 5-10 | others → 3
+      parallel_workers:
+        description: "Parallel workers  |  okx/bybit/kucoin→5  coinbase/kraken→1"
         type: choice
         default: "3"
-        options:
-          - "2"
-          - "3"
-          - "5"
-          - "10"
+        options: ["1", "2", "3", "5", "8", "10"]
 
-      # ═══════════════════════════════════════════════════════
-      # 3. WHAT TO DO — indicators and scenarios
-      # ═══════════════════════════════════════════════════════
-
-      indicators:
-        description: |
-          Indicators to calculate (select combination, or "none"):
-          Available: RSI, ATR, EMA, SMA, MACD, ADX, BollingerBands
+      # ── 5. ANALYSIS ────────────────────────────────────────
+      scenarios:
+        description: "Scenario  |  none=data only  price_gap=gap analysis  leadlag=who leads  summary=basic stats"
         type: choice
         default: "none"
-        options:
-          - "none"
-          - "RSI"
-          - "ATR"
-          - "EMA"
-          - "SMA"
-          - "MACD"
-          - "ADX"
-          - "BollingerBands"
-          - "RSI,ATR"
-          - "RSI,ATR,EMA"
-          - "RSI,ATR,MACD"
-          - "RSI,ATR,ADX"
-          - "RSI,ATR,EMA,MACD,ADX"
-          - "RSI,ATR,EMA,SMA,MACD,ADX,BollingerBands"
-
-      scenarios:
-        description: |
-          Scenario(s) to run:
-          • exchange_price_gap  = price gap % between 2 exchanges (needs Dataset 1 + 2)
-          • leadlag             = which exchange leads/follows (needs Dataset 1 + 2)
-          • simple_summary      = basic stats per dataset (any number of datasets)
-          • none                = only fetch/cache data, no analysis
-        type: choice
-        default: "exchange_price_gap"
         options:
           - "none"
           - "exchange_price_gap"
@@ -256,45 +74,7 @@ on:
           - "simple_summary"
           - "exchange_price_gap,leadlag"
           - "exchange_price_gap,simple_summary"
-          - "leadlag,simple_summary"
           - "exchange_price_gap,leadlag,simple_summary"
-
-      # ═══════════════════════════════════════════════════════
-      # 4. SCENARIO SETTINGS
-      # (only used when the relevant scenario is selected above)
-      # ═══════════════════════════════════════════════════════
-
-      gap_thresholds:
-        description: |
-          [exchange_price_gap only] Price gap band edges in % (comma-separated).
-          Bands auto-built from edges: 0→t1, t1→t2, ..., tlast→∞
-          Example: 0.5,1.0,1.5,2.0 → bands: 0-0.5%, 0.5-1%, 1-1.5%, 1.5-2%, 2%+
-        type: string
-        default: "0.5,1.0,1.5,2.0"
-
-      leadlag_threshold:
-        description: "[leadlag only] Minimum % price move to count as a significant move (default 0.05)"
-        type: choice
-        default: "0.05"
-        options:
-          - "0.01"
-          - "0.03"
-          - "0.05"
-          - "0.10"
-          - "0.20"
-          - "0.50"
-
-      leadlag_max_lag:
-        description: "[leadlag only] Max candles to look ahead for follow-through move (default 10)"
-        type: choice
-        default: "10"
-        options:
-          - "3"
-          - "5"
-          - "10"
-          - "15"
-          - "20"
-          - "30"
 
 permissions:
   contents: write
@@ -305,35 +85,16 @@ jobs:
 
     env:
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-      # dataset 1
-      RUN_DS1_ENABLED: ${{ inputs.ds1_enabled }}
-      RUN_DS1_KEY: ${{ inputs.ds1_key }}
       RUN_DS1_EXCHANGE: ${{ inputs.ds1_exchange }}
-      RUN_DS1_SYMBOL: ${{ inputs.ds1_symbol }}
+      RUN_DS1_SYMBOL:   ${{ inputs.ds1_symbol }}
       RUN_DS1_TIMEFRAME: ${{ inputs.ds1_timeframe }}
-      RUN_DS1_SINCE: ${{ inputs.ds1_since_date }}
-      RUN_DS1_UNTIL: ${{ inputs.ds1_until_date }}
-      # dataset 2
-      RUN_DS2_ENABLED: ${{ inputs.ds2_enabled }}
-      RUN_DS2_KEY: ${{ inputs.ds2_key }}
+      RUN_DS1_SINCE:    ${{ inputs.ds1_since_date }}
+      RUN_DS1_UNTIL:    ${{ inputs.ds1_until_date }}
+      RUN_DS2_ENABLED:  ${{ inputs.ds2_enabled }}
       RUN_DS2_EXCHANGE: ${{ inputs.ds2_exchange }}
-      RUN_DS2_SYMBOL: ${{ inputs.ds2_symbol }}
-      RUN_DS2_TIMEFRAME: ${{ inputs.ds2_timeframe }}
-      RUN_DS2_SINCE: ${{ inputs.ds2_since_date }}
-      RUN_DS2_UNTIL: ${{ inputs.ds2_until_date }}
-      # fetch
+      RUN_CACHE_MODE:   ${{ inputs.cache_mode }}
       RUN_PARALLEL_WORKERS: ${{ inputs.parallel_workers }}
-      RUN_CACHE_MODE: ${{ inputs.cache_mode }}
-      RUN_MERGE_CHUNKS: ${{ inputs.merge_chunks }}
-      RUN_RETRY_COUNT: ${{ inputs.retry_count }}
-      RUN_RETRY_BASE_WAIT: ${{ inputs.retry_base_wait }}
-      # analysis
-      RUN_INDICATORS: ${{ inputs.indicators }}
-      RUN_SCENARIOS: ${{ inputs.scenarios }}
-      # scenario params
-      RUN_GAP_THRESHOLDS: ${{ inputs.gap_thresholds }}
-      RUN_LEADLAG_THRESHOLD: ${{ inputs.leadlag_threshold }}
-      RUN_LEADLAG_MAX_LAG: ${{ inputs.leadlag_max_lag }}
+      RUN_SCENARIOS:    ${{ inputs.scenarios }}
 
     steps:
       - name: Checkout repository
