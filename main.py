@@ -290,15 +290,7 @@ if __name__ == "__main__":
         print("[workflow] Overriding CONFIG from GitHub Actions inputs...")
 
         pw = max(int(_env("RUN_PARALLEL_WORKERS", "3")), 1)
-        mc = _bool(_env("RUN_MERGE_CHUNKS", "false"))
-        retry_count = int(_env("RUN_RETRY_COUNT", "8"))
-        retry_base_wait = int(_env("RUN_RETRY_BASE_WAIT", "3"))
-
-        # single cache_mode choice maps to 3 boolean flags
         cache_mode = _env("RUN_CACHE_MODE", "normal")
-        force_refresh = (cache_mode == "force_refresh")
-        update_latest = (cache_mode == "update_latest")
-        fill_missing  = (cache_mode == "fill_missing")
 
         def _ds_params(exchange, symbol, timeframe, since, until):
             safe = symbol.replace("/", "")
@@ -306,44 +298,43 @@ if __name__ == "__main__":
                 "exchange": exchange, "symbol": symbol, "timeframe": timeframe,
                 "since_date": f"{since}T00:00:00Z", "until_date": f"{until}T00:00:00Z",
                 "cache_path": f"data/crypto/raw/{safe}_{timeframe}_{exchange}.parquet",
-                "parallel_workers": pw, "merge_chunks": mc,
-                "force_refresh": force_refresh, "update_latest": update_latest,
-                "fill_missing": fill_missing,
-                "retry_count": retry_count, "retry_base_wait": retry_base_wait,
-                "retry_max_wait": 60,
+                "parallel_workers": pw, "merge_chunks": False,
+                "force_refresh":  (cache_mode == "force_refresh"),
+                "update_latest":  (cache_mode == "update_latest"),
+                "fill_missing":   (cache_mode == "fill_missing"),
+                "retry_count": 8, "retry_base_wait": 3, "retry_max_wait": 60,
             }
 
-        workflow_datasets = {}
-        ds1_key = _env("RUN_DS1_KEY", "ds1")
-        if _bool(_env("RUN_DS1_ENABLED", "true")):
-            workflow_datasets[ds1_key] = {"enabled": True, "source": "ccxt_fetch", "params": _ds_params(
-                _env("RUN_DS1_EXCHANGE","okx"), _env("RUN_DS1_SYMBOL","BTC/USDT"),
-                _env("RUN_DS1_TIMEFRAME","1m"), _env("RUN_DS1_SINCE","2025-01-01"),
-                _env("RUN_DS1_UNTIL","2026-06-30"),
-            )}
-        ds2_key = _env("RUN_DS2_KEY", "ds2")
-        if _bool(_env("RUN_DS2_ENABLED", "false")):
-            workflow_datasets[ds2_key] = {"enabled": True, "source": "ccxt_fetch", "params": _ds_params(
-                _env("RUN_DS2_EXCHANGE","kucoin"), _env("RUN_DS2_SYMBOL","BTC/USDT"),
-                _env("RUN_DS2_TIMEFRAME","1m"), _env("RUN_DS2_SINCE","2025-01-01"),
-                _env("RUN_DS2_UNTIL","2026-06-30"),
-            )}
+        sym    = _env("RUN_DS1_SYMBOL", "BTC/USDT")
+        exch1  = _env("RUN_DS1_EXCHANGE", "okx")
+        tf     = _env("RUN_DS1_TIMEFRAME", "1m")
+        since  = _env("RUN_DS1_SINCE", "2025-01-01")
+        until  = _env("RUN_DS1_UNTIL", "2026-06-30")
 
-        raw_ind = _env("RUN_INDICATORS", "none")
-        indicators = [] if raw_ind in ("none","","None") else [i.strip() for i in raw_ind.split(",") if i.strip()]
+        workflow_datasets = {
+            f"{exch1}_{sym.replace('/','').lower()}": {
+                "enabled": True, "source": "ccxt_fetch",
+                "params": _ds_params(exch1, sym, tf, since, until),
+            }
+        }
+
+        if _bool(_env("RUN_DS2_ENABLED", "false")):
+            exch2 = _env("RUN_DS2_EXCHANGE", "kucoin")
+            workflow_datasets[f"{exch2}_{sym.replace('/','').lower()}"] = {
+                "enabled": True, "source": "ccxt_fetch",
+                "params": _ds_params(exch2, sym, tf, since, until),
+            }
 
         raw_sc = _env("RUN_SCENARIOS", "none")
         scenarios = [] if raw_sc in ("none","","None") else [s.strip() for s in raw_sc.split(",") if s.strip()]
 
-        thresholds = [float(t.strip()) for t in _env("RUN_GAP_THRESHOLDS","0.5,1.0,1.5,2.0").split(",") if t.strip()]
-        ll_threshold = float(_env("RUN_LEADLAG_THRESHOLD","0.05"))
-        ll_max_lag = int(_env("RUN_LEADLAG_MAX_LAG","10"))
-
         workflow_config = {
-            "datasets": workflow_datasets, "indicators": indicators, "scenarios": scenarios,
+            "datasets": workflow_datasets,
+            "indicators": [],
+            "scenarios": scenarios,
             "scenario_params": {
-                "exchange_price_gap": {"thresholds": thresholds},
-                "leadlag": {"move_threshold_pct": ll_threshold, "max_lag": ll_max_lag},
+                "exchange_price_gap": {"thresholds": [0.5, 1.0, 1.5, 2.0]},
+                "leadlag": {"move_threshold_pct": 0.05, "max_lag": 10},
             },
             "save_outputs": True,
         }
