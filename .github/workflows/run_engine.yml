@@ -1,80 +1,17 @@
 name: Run Research System
 
-# For advanced settings (retry, merge, leadlag params etc.)
-# edit main.py CONFIG directly on GitHub, then run this workflow.
+# ─────────────────────────────────────────────────────────────
+# HOW TO USE:
+#   1. Edit main.py CONFIG block on GitHub (pencil icon)
+#   2. Commit changes
+#   3. Actions tab → Run Research System → Run workflow
+#
+# All parameters are controlled from main.py CONFIG.
+# See WORKFLOW_GUIDE.md for parameter reference.
+# ─────────────────────────────────────────────────────────────
 
 on:
   workflow_dispatch:
-    inputs:
-
-      # ── 1. EXCHANGE & COIN ─────────────────────────────────
-      ds1_exchange:
-        description: "Exchange 1"
-        type: choice
-        default: "okx"
-        options: [okx, bybit, kucoin, binance, coinbase, kraken, mexc, gate]
-
-      ds1_symbol:
-        description: "Coin pair"
-        type: choice
-        default: "BTC/USDT"
-        options: [BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, XRP/USDT, ADA/USDT, DOGE/USDT]
-
-      ds1_timeframe:
-        description: "Timeframe"
-        type: choice
-        default: "1m"
-        options: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
-
-      # ── 2. DATE RANGE ──────────────────────────────────────
-      ds1_since_date:
-        description: "From date  (YYYY-MM-DD)"
-        type: string
-        default: "2025-01-01"
-
-      ds1_until_date:
-        description: "To date    (YYYY-MM-DD)"
-        type: string
-        default: "2026-06-30"
-
-      # ── 3. SECOND EXCHANGE (for comparison scenarios) ──────
-      ds2_enabled:
-        description: "Enable 2nd exchange? (needed for exchange_price_gap / leadlag)"
-        type: boolean
-        default: false
-
-      ds2_exchange:
-        description: "Exchange 2  (only used if 2nd exchange is enabled above)"
-        type: choice
-        default: "kucoin"
-        options: [okx, bybit, kucoin, binance, coinbase, kraken, mexc, gate]
-
-      # ── 4. FETCH MODE ──────────────────────────────────────
-      cache_mode:
-        description: "Fetch mode  |  normal=use cache  fill_missing=retry incomplete  update_latest=append new  force_refresh=re-fetch all"
-        type: choice
-        default: "normal"
-        options: [normal, fill_missing, update_latest, force_refresh]
-
-      parallel_workers:
-        description: "Parallel workers  |  okx/bybit/kucoin→5  coinbase/kraken→1"
-        type: choice
-        default: "3"
-        options: ["1", "2", "3", "5", "8", "10"]
-
-      # ── 5. ANALYSIS ────────────────────────────────────────
-      scenarios:
-        description: "Scenario  |  none=data only  price_gap=gap analysis  leadlag=who leads  summary=basic stats"
-        type: choice
-        default: "none"
-        options:
-          - "none"
-          - "exchange_price_gap"
-          - "leadlag"
-          - "simple_summary"
-          - "exchange_price_gap,leadlag"
-          - "exchange_price_gap,simple_summary"
-          - "exchange_price_gap,leadlag,simple_summary"
 
 permissions:
   contents: write
@@ -82,19 +19,6 @@ permissions:
 jobs:
   run-engine:
     runs-on: ubuntu-latest
-
-    env:
-      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-      RUN_DS1_EXCHANGE: ${{ inputs.ds1_exchange }}
-      RUN_DS1_SYMBOL:   ${{ inputs.ds1_symbol }}
-      RUN_DS1_TIMEFRAME: ${{ inputs.ds1_timeframe }}
-      RUN_DS1_SINCE:    ${{ inputs.ds1_since_date }}
-      RUN_DS1_UNTIL:    ${{ inputs.ds1_until_date }}
-      RUN_DS2_ENABLED:  ${{ inputs.ds2_enabled }}
-      RUN_DS2_EXCHANGE: ${{ inputs.ds2_exchange }}
-      RUN_CACHE_MODE:   ${{ inputs.cache_mode }}
-      RUN_PARALLEL_WORKERS: ${{ inputs.parallel_workers }}
-      RUN_SCENARIOS:    ${{ inputs.scenarios }}
 
     steps:
       - name: Checkout repository
@@ -121,6 +45,6 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/
           [ -d outputs ] && git add outputs/ || true
-          git diff --cached --quiet || git commit -m "[${{ inputs.ds1_exchange }}/${{ inputs.ds1_symbol }}/${{ inputs.ds1_timeframe }}] ${{ inputs.scenarios }} | ${{ inputs.cache_mode }}"
+          git diff --cached --quiet || git commit -m "Research run: $(date -u '+%Y-%m-%d %H:%M') UTC"
           git pull --rebase origin main
           git push
